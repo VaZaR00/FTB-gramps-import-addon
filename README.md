@@ -19,14 +19,14 @@ Than read instruction in addons menu.
 
 You will have to choose folder path of your FTB family tree project
 
-![ftb_select](https://github.com/user-attachments/assets/d9115a26-b308-4e63-8e16-ed8a3ce3f736)
+![path](https://github.com/user-attachments/assets/4c3aacd9-1692-4271-b608-3e609e2c8997)
 
 Which you can get in FTB:
-click "File" -> "Manage Projects"
+"File" -> "Manage Projects"
 
 ![ftb_manage](https://github.com/user-attachments/assets/97b030ac-9b92-4efa-99b6-2a7d1bdb55ce)
 
-_select your project_ -> click "Go to Folder" button on the right
+_select your project_ -> click "Go to Folder" button 
 
 ![ftb_select](https://github.com/user-attachments/assets/2a494412-edce-4c2f-b4ae-e9ab4830ce84)
 
