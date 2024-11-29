@@ -12,6 +12,7 @@ In Gramps navigate to
 Than read instruction in addons menu. 
 ![instruction](https://github.com/user-attachments/assets/72eac2ab-e892-4578-af1c-9d0431e3f8c6)
 
+
 You will have to choose folder path of your FTB family tree project
 ![ftb_select](https://github.com/user-attachments/assets/d9115a26-b308-4e63-8e16-ed8a3ce3f736)
 
