@@ -7,7 +7,7 @@ Addon reads local SQLite file of FTB project DB and **doesn't overwrite it!**
 # How to use
 
 In Gramps navigate to
-"tools" -> "Family Tree Proccesing" -> "FTB to Gramps data transfer".
+"Tools" -> "Family Tree Proccesing" -> "FTB to Gramps data transfer".
 
 ![navigate_gramps](https://github.com/user-attachments/assets/19c1a56c-2604-43d3-8312-aba574b7f3b5)
 
