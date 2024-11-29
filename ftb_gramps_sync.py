@@ -1320,10 +1320,30 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         return f"{typeObj}{id:0{num}}"
     
     def getMediaPath(self, photo_id: int):
-        photos_folder = os.path.join(self.path, "Photos")
+        #helper func
+        def find_photos_folder(base_path):
+            for folder_name in FTB_PHOTOS_DIRS:
+                # Check in lowercase
+                lower_folder = os.path.join(base_path, folder_name.lower())
+                if os.path.isdir(lower_folder):
+                    return lower_folder
+                
+                # Check in CamelCase
+                camel_folder = os.path.join(base_path, folder_name.title())
+                if os.path.isdir(camel_folder):
+                    return camel_folder
+                
+                # Check in UPPERCASE
+                upper_folder = os.path.join(base_path, folder_name.upper())
+                if os.path.isdir(upper_folder):
+                    return upper_folder
+            
+            return None
         
-        if not os.path.isdir(photos_folder):
-            print("Folder 'Photos' not found.")
+        photos_folder = find_photos_folder(self.path)
+        
+        if not photos_folder:
+            print(f"Media folder not found.")
             return None
         
         file_prefix = f"P{photo_id}_"
@@ -1416,9 +1436,9 @@ class FTBDatabaseHandler:
         return cursor, conn
 
     def find_ftb_file(self, root_folder: str):
-        if not (FTB_DIR_NAME in root_folder): return None
+        # if not (FTB_DIR_NAME in root_folder.lower()): return None
         for dirpath, dirnames, filenames in os.walk(root_folder):
-            if os.path.basename(dirpath) == FTB_DB_DIR_NAME:
+            if os.path.basename(dirpath).lower() == FTB_DB_DIR_NAME:
                 for filename in filenames:
                     if filename.endswith(FTB_DB_FORMAT):
                         return os.path.join(dirpath, filename)

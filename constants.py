@@ -1,5 +1,6 @@
-FTB_DIR_NAME = "MyHeritage"
-FTB_DB_DIR_NAME = "Database"
+FTB_DIR_NAME = "myheritage"
+FTB_DB_DIR_NAME = "database"
+FTB_PHOTOS_DIRS = ["photos"]
 FTB_DB_FORMAT = '.ftb'
 
 NUMBER_OF_TRY_FIND_ID = 10
@@ -115,7 +116,11 @@ such as Facts, Notes, Media, Citates and so on...
 And then iterate through each family transfering its data too and connecting persons.\n
 On next page please select folder of your FTB project.\n
 You can get its path in FTB program by: \n
-click "File" -> "Manage Projects" -> select your project -> click "Go to Folder" button on the right
+click "File" -> "Manage Projects" -> select your project -> click "Go to Folder" button on the right \n
+\n
+\n
+For more info go to GitHub: 
+https://github.com/VaZaR00/FTB-gramps-import-addon
 """
 
 MENU_LBL_PATH_TITLE = "FTB Project path"
