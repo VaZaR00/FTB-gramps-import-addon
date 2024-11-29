@@ -1,7 +1,7 @@
 #------------------------------------------------------------------------
 #
 # python modules
-#print(f"FORMAT_ID: id-{id}, type-{typeObj}, TYPE:type- {type(typeObj)}, TYPE:id- {type(id)}")
+#
 #------------------------------------------------------------------------
 import mimetypes
 import threading
@@ -192,11 +192,10 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         self.db = dbstate.db # Access to Gramps DB object
         self.dbHandler = None # Access to FTB SQL db
         self.connectedToFTBdb = False
-        self.path = None #"C:/Users/Саша/Documents/MyHeritage/mh-db-test"  # File path chosen by user
+        self.path = None # File path chosen by user
         self.toCommit = []  # Log entries
         self.logs = []  # Log entries
         self.processing_complete = False
-        # self.start_processing()
         self.createGUI()
 
     #------------------------------------------------------------------------
@@ -243,7 +242,7 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
 
     def proccesAsync(self):
         self.log(HINT_PROCCESING)
-        time.sleep(2)
+        time.sleep(2) # temporary, to let next page load
         GLib.idle_add(self.start_processing)
         self.progress_page.set_complete()
 
@@ -290,7 +289,6 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
             with DbTxn(f"FTB:GRAMPS:SYNC", self.db) as trans:   
                 self.trans = trans
                 self.run()
-            # self.commitAllToDb()
         except Exception as e:
             self.log(f"Something went wrong: {e}")
             self.cancelChanges()
@@ -330,7 +328,6 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
                 obj.set_handle(create_id())
             except:
                 pass
-            # print(f"New object '{name}' created")
         try:
             new = modify(obj, data)
         except Exception as e:
@@ -342,7 +339,6 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
             new = obj
 
         self.clearEmptyAttributes(new)
-        # self.toCommit.append((new, name))
         self.grampsDbMethod(obj, name, "add_%s")
         self.grampsDbMethod(new, name)
         
@@ -354,7 +350,6 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
             return None
 
     def unpackFacts(self, id, type, parent):
-        # events, attributes, urls, addresses, notes = []
         events = []
         attributes = []
         urls = []
@@ -421,16 +416,6 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         method = self.db.method(command, name)
         if method:
             method(obj, self.trans)
-
-    def commitAllToDb(self):
-        with DbTxn(f"FTB:GRAMPS:SYNC", self.db) as trans:
-            for obj, name in self.toCommit:
-                method = self.db.method("add_%s", name)
-                if method:
-                    method(obj, trans)
-                    self.db.method("commit_%s", name)(obj, trans)
-        
-        self.toCommit = []
 
     def setFamilyMembers(self, family: Family, familyId):
         membersConnections: tuple[FamilyIndividualConnectionDTO] = self.fetchData((familyId, FamilyIndividualConnectionDTO, False))
@@ -559,7 +544,6 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
             id = id.note_id
         note = self.tryFind(self.db.get_note_from_gramps_id, NOTE_ID_PFX, id)
         if not _data:
-            # noteId = self.fetchData((id, NoteToItemConnectionDTO)).note_id
             _data = self.fetchData((id, NoteMainDataDTO, True), (id, NoteLangDataDTO))
         return note, self.modifyNote, Note, _data
 
@@ -633,7 +617,6 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
             setattr(name, "parent", person)
         
         privacy = bool(mainData.privacy_level)
-        # gramps_id = self.formatId(mainData.individual_id, PERSON_ID_PFX)
         gender = self.convert_gender(mainData.gender)
         primary_name = self.handleObject(self.findName, names[0], True)
 
@@ -661,7 +644,6 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         newAddresses = self.createObjectsList(addresses)
 
         self.trySetGrampsId(person, mainData.individual_id, PERSON_ID_PFX)
-        # person.set_gramps_id(gramps_id)
         person.set_privacy(privacy)
         person.set_gender(gender)
         person.set_primary_name(primary_name)
@@ -689,7 +671,6 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         if not mainData: return None
 
         privacy = False
-        # gramps_id = self.formatId(mainData.family_id, FAMILY_ID_PFX)
 
         defaultAttributes = [
             (False, CRT, mainData.create_timestamp)
@@ -709,7 +690,6 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         newNotes = self.createObjectsList(notes) + self.getNotes(mainData.token_on_item_id)
 
         self.trySetGrampsId(family, mainData.family_id, FAMILY_ID_PFX)
-        # family.set_gramps_id(gramps_id)
         family.set_privacy(privacy)
         for attribute in newAttributes:
             family.add_attribute(attribute)
@@ -748,7 +728,6 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
             id = mainData.family_fact_id
             pfx = FAMILY_EVENT_ID_PFX
 
-        # gramps_id = self.formatId(id, pfx)
         eventType = self.defineEventType(mainData.token, mainData.fact_type)
         date = self.extract_date(mainData)
         description = langData.header
@@ -771,7 +750,6 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         newMedia = self.createObjectsList(media)
 
         self.trySetGrampsId(event, id, pfx)
-        # event.set_gramps_id(gramps_id)
         event.set_privacy(privacy)
         event.set_type(eventType)
         event.set_date_object(date)
@@ -835,7 +813,6 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         if not (mainData and langData): return None
 
         self.trySetGrampsId(note, mainData.note_id, NOTE_ID_PFX)
-        # note.set_gramps_id(self.formatId(mainData.note_id, NOTE_ID_PFX))
         note.set_privacy(bool(mainData.privacy_level))
         note.set_styledtext(self.format_text(langData.note_text))
         return note
@@ -855,7 +832,6 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         notes = self.getNotes(mainData.token_on_item_id)
 
         self.trySetGrampsId(citation, mainData.citation_id, CITATION_ID_PFX)
-        # citation.set_gramps_id(self.formatId(mainData.citation_id, CITATION_ID_PFX))
         citation.set_page(mainData.page)
         citation.set_confidence_level(mainData.confidence)
         citation.set_date_object(self.extract_date(mainData))
@@ -892,7 +868,6 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
 
         media.set_path(path)
         self.trySetGrampsId(media, mediaId, MEDIA_ID_PFX)
-        # media.set_gramps_id(self.formatId(mediaId, MEDIA_ID_PFX))
         media.set_privacy(prvt)
         media.set_date_object(self.extract_date(mainData))
         media.set_description(langData.title)
@@ -927,7 +902,6 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         )
         
         self.trySetGrampsId(source, mainData.source_id, SOURCE_ID_PFX)
-        # source.set_gramps_id(self.formatId(mainData.source_id, SOURCE_ID_PFX))
         source.set_title(langData.title)
         source.set_abbreviation(langData.abbreviation)
         source.set_author(langData.author)
@@ -970,7 +944,6 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         newAddresses = self.createObjectsList([(self.findAddress, repoAddress)])
 
         self.trySetGrampsId(repo, mainData.repository_id, REPOSITORY_ID_PFX)
-        # repo.set_gramps_id(self.formatId(mainData.repository_id, REPOSITORY_ID_PFX))
         repo.set_name(langData.name)
         for note in notes:
             repo.add_note(note.get_handle())
@@ -1017,7 +990,6 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         
 
         self.trySetGrampsId(place, data.place_id, PLACE_ID_PFX)
-        # place.set_gramps_id(self.formatId(data.place_id, PLACE_ID_PFX))
         placeName = PlaceName()
         placeName.set_value(data.place)
         place.set_name(placeName)
@@ -1411,27 +1383,11 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
             obj = func(f"{id:05}")
         if not obj:
             obj = func(f"{id}")
-        # if not obj:
-        #     for i in range(NUMBER_OF_TRY_FIND_ID):
-        #         obj = func(self.formatId(id, pfx, DEFAULT_NUM_OF_ZEROS_ID + i))
-        #         if obj:
-        #             break
 
         return obj
     
     def trySetGrampsId(self, obj, id, idPfx):
-        # name = type(obj).__name__.lower()
-        # method = self.db.method("get_%s_from_gramps_id", name)
         newId = self.formatId(id, idPfx)
-
-        # if method:
-        #     for i in range(NUMBER_OF_TRY_FIND_ID):
-        #         foundObj = method(newId)
-        #         print(f"TRY_SET_ID_OBJ: {BaseRepr().__repr__(foundObj)}, newID = {newId}, id = {id}")
-        #         if foundObj == None:
-        #             break
-        #         else:
-        #             newId = self.formatId(id, idPfx, DEFAULT_NUM_OF_ZEROS_ID + i)
 
         obj.set_gramps_id(newId)
 
@@ -1452,17 +1408,12 @@ class FTBDatabaseHandler:
         self.cursor, self.dbConnection = self.connect_to_database()
 
     def connect_to_database(self):
-        # try:
         self.dbPath = self.find_ftb_file(self.dbPath)
         if not self.dbPath: raise FileNotFoundError
         conn = sqlite3.connect(self.dbPath, check_same_thread=False)
         conn.text_factory = lambda b: b.decode(errors = 'ignore')
         cursor = conn.cursor()
-        # print(f"Succesfully connected to db: '{self.dbPath}'")
         return cursor, conn
-        # except Exception as e:
-        #     print(f"Error while trying to connect to db: {e}")
-        #     return None, None
 
     def find_ftb_file(self, root_folder: str):
         if not (FTB_DIR_NAME in root_folder): return None
@@ -1494,7 +1445,6 @@ class FTBDatabaseHandler:
                     objects = [dtoClass(*row) for row in rows]
                 return objects
             else:
-                # print(f"Data with key = {key} not found. Class: {dtoClass}")
                 return None
 
         except sqlite3.Error as e:
