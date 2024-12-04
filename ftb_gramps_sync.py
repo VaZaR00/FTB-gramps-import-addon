@@ -185,7 +185,6 @@ class FinishPage(Page):
 
 class FTB_Gramps_sync(BatchTool, ManagedWindow):
     def __init__(self, dbstate, user, options_class, name, *args, **kwargs):
-        """Initialize GUI."""
         BatchTool.__init__(self, dbstate, user, options_class, name)
         ManagedWindow.__init__(self, user.uistate, [], self.__class__)
         self.dbState = dbstate 
@@ -203,6 +202,7 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
     #region GUI
 
     def createGUI(self):
+        """Initialize GUI."""
         self.assistant = Gtk.Assistant()
         self.set_window(self.assistant, None, MENU_TITLE)
         self.setup_configs("interface.ftbgrampssync", 780, 600)
@@ -1446,7 +1446,7 @@ class FTBDatabaseHandler:
 
     def fetchDbDataDto(self, key, dtoClass, oneRow=True, query=None):
         if query is None:
-            query = dtoClass.query
+            query = dtoClass().query
             
         if not isinstance(key, tuple):
             key = (key, )
