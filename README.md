@@ -1,11 +1,13 @@
-Import data from MyHeritage Family Tree Builder (FTB) to Gramps
+Import data from MyHeritage Family Tree Builder (FTB) to Gramps.
 
-[How to install](https://gramps-project.org/wiki/index.php/5.2_Addons#Manually_installed_Addons)
+Addon reads local SQLite file of FTB project DB and **doesn't overwrite it!**
 
-How to use:
+# [How to install](https://gramps-project.org/wiki/index.php/5.2_Addons#Manually_installed_Addons)
+
+# How to use
 
 In Gramps navigate to
-"tools" -> "Family Tree Proccesing" -> "FTB to Gramps data transfer".
+"Tools" -> "Family Tree Proccesing" -> "FTB to Gramps data transfer".
 
 ![navigate_gramps](https://github.com/user-attachments/assets/19c1a56c-2604-43d3-8312-aba574b7f3b5)
 
@@ -17,18 +19,19 @@ Than read instruction in addons menu.
 
 You will have to choose folder path of your FTB family tree project
 
-![ftb_select](https://github.com/user-attachments/assets/d9115a26-b308-4e63-8e16-ed8a3ce3f736)
+![path](https://github.com/user-attachments/assets/4c3aacd9-1692-4271-b608-3e609e2c8997)
 
 Which you can get in FTB:
-click "File" -> "Manage Projects"
+"File" -> "Manage Projects"
 
 ![ftb_manage](https://github.com/user-attachments/assets/97b030ac-9b92-4efa-99b6-2a7d1bdb55ce)
 
-_select your project_ -> click "Go to Folder" button on the right
+_select your project_ -> click "Go to Folder" button 
 
 ![ftb_select](https://github.com/user-attachments/assets/2a494412-edce-4c2f-b4ae-e9ab4830ce84)
 
-How it works:
+# How it works
+It reads local SQLite database file of FTB project.
 It iterates through each person in FTB database and transfer all connected to them data
 such as Facts, Notes, Media, Citates and so on...
 And then iterate through each family in FTB database transfering its data too and connecting persons.
