@@ -6,6 +6,7 @@
 import mimetypes
 import threading
 import time
+import copy
 from typing import Optional
 from constants import *
 from ftb_dto import *
@@ -21,7 +22,7 @@ from gi.repository import Gtk, GLib
 
 #------------------------------------------------------------------------
 #
-# gramps modules "C:/Users/Саша/Documents/MyHeritage/mh-db-test"
+# gramps modules
 #
 #------------------------------------------------------------------------
 from gramps.gen.db import DbTxn
@@ -30,7 +31,14 @@ from gramps.gui.managedwindow import ManagedWindow
 from gramps.gen.lib import *
 from gramps.gen.utils.id import create_id
 from gramps.gui.plug.tool import BatchTool, ToolOptions
+from gramps.gen.config import config
 
+"""
+TODO:
+1. Changes tab
+2. Copy photos
+3. Translation
+"""
 
 #region Helpers
 def isEmptyOrWhitespace(s):
@@ -41,7 +49,21 @@ def getValFromMap(data_map, search_key, indx):
         if tupl[0] == search_key:
             return tupl[indx]
     return None
+
+def formatMHid(id, pfx):
+        return f"MH:{pfx}{id:0{DEFAULT_NUM_OF_ZEROS_ID_MH}}"
+
+def forLog(data):
+    try:
+        if isinstance(data, tuple):
+            return data[0].hintKey()
+        else: return data.hintKey()
+    except:
+        return "null"
 #endregion
+
+
+DEV_TEST_BD_PATH = "C:/Users/Sasha/Documents/MyHeritage/1st_1"
 
 #------------------------------------------------------------------------
 #
@@ -113,6 +135,9 @@ class FileSelectorPage(Page):
         self.selected_file_path = None
         self._complete = False
 
+        if DEV_TEST_BD_PATH:
+            self.set_complete()
+
         self.show_all()
 
     def on_file_selected(self, widget):
@@ -120,7 +145,7 @@ class FileSelectorPage(Page):
         self.show_folder_error(False)
         path = widget.get_filename() 
         self.selected_file_path = path
-        self.file_path_label.set_text(f"Selected: {path}")
+        self.file_path_label.set_text(MENU_LBL_PATH_SELECTED.format(path))
         
         if self.tryConnect(path):
             self.set_complete()
@@ -191,10 +216,17 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         self.db = dbstate.db # Access to Gramps DB object
         self.dbHandler = None # Access to FTB SQL db
         self.connectedToFTBdb = False
-        self.path = None # File path chosen by user
+        self.path = DEV_TEST_BD_PATH # File path chosen by user
         self.toCommit = []  # Log entries
         self.logs = []  # Log entries
+        self.compares = []
         self.processing_complete = False
+        self.succesfuly = True
+
+        if DEV_TEST_BD_PATH:
+            self.tryConnectSQLdb(self.path)
+
+        self.getConfigs()
         self.createGUI()
 
     #------------------------------------------------------------------------
@@ -281,22 +313,43 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
     #region BACKEND
 
     #region main
+    def getConfigs(self):
+        self.dataReplace = {
+            # if set to False it will always create new object (might duplicate)
+            # else it will try to find if it exists already
+            Event: True,
+            Name: True,
+            Surname: True,
+            Attribute: True,
+            Note: True,
+            Citation: True,
+            Media: True,
+            Source: True,
+            Repository: True,
+            Date: True,
+            Url: True,
+            Address: True,
+            Place: True,
+        }
+        self.getPrefixesFromConfig()
+
     def start_processing(self):
         """Start the backend processing."""
         try:
-            self.log(f"Succesfully connected to db: '{self.path}'")
-            self.log(f"db: '{self.dbHandler.cursor}'")
-            with DbTxn(f"FTB:GRAMPS:SYNC", self.db) as trans:   
+            self.log(HINT_PROCCES_CONNTODB.format(self.path))
+            with DbTxn(f"FTB:GRAMPS:SYNC", self.db) as trans:
                 self.trans = trans
                 self.run()
         except Exception as e:
-            self.log(f"Something went wrong: {e}")
+            self.log(HINT_PROCCES_ERROR.format(e))
             self.cancelChanges()
             raise e
         
         self.dbState.signal_change()
 
     def run(self):
+        self.find_photos_folder()
+
         allPersonsIds = self.dbHandler.fetchDbData(["individual_id"], "individual_main_data")
         allFamiliesIds = self.dbHandler.fetchDbData(["family_id"], "family_main_data")
 
@@ -306,7 +359,15 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         for id in allFamiliesIds:
             self.handleObject(self.findFamily, id, False, False)
 
-        self.log(HINT_PROCCES_DONE)
+        for obj, _ in self.compares:
+            name = type(obj).__name__.lower()
+            self.grampsDbMethod(obj, name, "add_%s")
+            self.grampsDbMethod(obj, name)
+
+        if self.succesfuly:
+            self.log(HINT_PROCCES_DONE_S)
+        else:
+            self.log(HINT_PROCCES_DONE_W)
         self.processing_complete = True
 
     def tryConnectSQLdb(self, path):
@@ -321,28 +382,35 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
     def handleObject(self, find, arg=None, returnObj=False, keepEmpty=True):
         obj, modify, objClass, data = find(arg)
         name = objClass.__name__.lower()
+        old = None
         exists = bool(obj)
         if not exists:
             obj = objClass()
+            self.log(HINT_HANDLEOBJ_DONTEXISTS.format(name, forLog(data)))
             try:
                 obj.set_handle(create_id())
             except:
                 pass
+        else:
+            pass
+            self.log(HINT_HANDLEOBJ_EXIST.format(name, forLog(data), obj))
+            old = copy.deepcopy(obj)
+        
         try:
             new = modify(obj, data)
         except Exception as e:
             new = None
-            self.log(f"\nSomething went wrong while proccesing {name} object ({obj}). Error: {e}")
+            self.log(HINT_HANDLEOBJ_ERROR.format(name, obj, data, e))
+            self.succesfuly = False
 
         if not new:
             if not keepEmpty: return None 
             new = obj
 
         self.clearEmptyAttributes(new)
-        self.grampsDbMethod(obj, name, "add_%s")
-        self.grampsDbMethod(new, name)
+        self.addCompare((new, old))
         
-        self.log(f"Object '{name}' ({obj}) commited. Time: {datetime.now()}")
+        # self.log(HINT_HANDLEOBJ_COMMIT.format(name, obj, datetime.now()))
 
         if not exists or returnObj:
             return new
@@ -357,10 +425,10 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         notes = []
 
         if type == FAMILY_ID_PFX:
-            mainDto, langDto = FamilyFactMainDataDTO, FamilyFactLangDataDTO
+            mainDto, langDto = family_fact_main_data_DTO, family_fact_lang_data_DTO
             id_name = "family_fact_id"
         else: 
-            mainDto, langDto = IndividualFactMainDataDTO, IndividualFactLangDataDTO
+            mainDto, langDto = individual_fact_main_data_DTO, individual_fact_lang_data_DTO
             id_name = "individual_fact_id"
 
         factsMain = self.formatFetchData(mainDto, id, self.findEvent)
@@ -394,13 +462,13 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
                 setattr(address, "parent", parent)
                 addresses.append((self.findAddress, address))
             elif token in URL_TYPES:
-                urls.append((self.findURL, UrlDTO((0, factName), text, "", 0, parent)))
+                urls.append((self.findURL, UrlDTO(factName, text, "", 0, parent)))
             elif token in NOTE_TYPES:
                 if token == DSCR_TOKEN: 
                     obj: MHAddress = self.parse_address(langData.header)
                     text = NOTE_PHYS_DESCR.format(obj.address, obj.address2, obj.city, obj.state, obj.zip, obj.country)
-                noteMain = NoteMainDataDTO(factId, fact.guid, fact.privacy_level)
-                noteLang = NoteLangDataDTO(text)
+                noteMain = note_main_data_DTO(factId, fact.guid, fact.privacy_level)
+                noteLang = note_lang_data_DTO(text)
                 setattr(noteMain, "parent", parent)
                 notes.append((self.findNote, (factId, (noteMain, noteLang))))
             else: 
@@ -415,14 +483,14 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
     def grampsDbMethod(self, obj, name, command="commit_%s"):
         method = self.db.method(command, name)
         if method:
-            method(obj, self.trans)
+            return method(obj, self.trans)
 
     def setFamilyMembers(self, family: Family, familyId):
-        membersConnections: tuple[FamilyIndividualConnectionDTO] = self.fetchData((familyId, FamilyIndividualConnectionDTO, False))
+        membersConnections: tuple[family_individual_connection_DTO] = self.fetchData((familyId, family_individual_connection_DTO, False))
         for member in membersConnections:
             id = member.individual_id
             role = member.individual_role_type
-            person: Person = self.tryFind(self.db.get_person_from_gramps_id, PERSON_ID_PFX, id)
+            person = self.findByIdsAttributes(formatMHid(id, "I"), "person", RIN, True)
 
             if not person: continue
 
@@ -434,7 +502,7 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
                 family.set_mother_handle(handle)
                 self.setPersonFamilyList(person, family.get_handle(), 1)
             else:
-                childList = [self.db.get_person_from_handle(child.ref) for child in family.get_child_ref_list()]
+                childList = [self.getTempObj(child.ref) for child in family.get_child_ref_list()]
                 child = self.findObjectByAttributes(
                     childList,
                     {"handle": person.get_handle()}
@@ -460,156 +528,182 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
                     family.add_child_ref(childRef)
 
                 self.setPersonFamilyList(person, family.get_handle(), 0)
-            
-            self.grampsDbMethod(person, type(person).__name__.lower())
+
+            self.addCompare((person, None))
 
     def cancelChanges(self):
         self.db.undo()
+    
+    def addCompare(self, c):
+        self.compares.append(c)
+    
+    def doReplace(self, type):
+        return self.dataReplace.get(type, False)
     #endregion
 
     #region Find objects in gramps
     def findPerson(self, id):
         if not id: return None, self.modifyPerson, Person, None
-        person = self.tryFind(self.db.get_person_from_gramps_id, PERSON_ID_PFX, id)
-        mainData, dataSets = self.fetchData((id, IndividualMainDataDTO), (id, IndividualDataSetDTO, False))
-        langData = [self.fetchData(((dataSet.individual_data_set_id, ), IndividualLangDataDTO)) for dataSet in dataSets]
+        mainData, dataSets = self.fetchData((id, individual_main_data_DTO), (id, individual_data_set_DTO, False))
+        person = self.findByIdsAttributes(mainData.guid, "person")
+        langData = [self.fetchData(((dataSet.individual_data_set_id, ), individual_lang_data_DTO)) for dataSet in dataSets]
+        langData = [el for el in langData if el is not None]
         return person, self.modifyPerson, Person, (mainData, langData)
 
     def findFamily(self, id):
-        family = self.tryFind(self.db.get_family_from_gramps_id, FAMILY_ID_PFX, id)
-        data = self.fetchData((id, FamilyMainDataDTO))
+        data = self.fetchData((id, family_main_data_DTO))
+        family = self.findByIdsAttributes(data.guid, "family")
         return family, self.modifyFamily, Family, data
 
     def findEvent(self, data):
         if not data: return None, self.modifyPerson, Person, None
         mainData, langData = data
-        if isinstance(mainData, IndividualFactMainDataDTO):
+        id = mainData.guid
+        if isinstance(mainData, individual_fact_main_data_DTO):
             eventParentType = PERSON_ID_PFX
-            id = mainData.individual_fact_id
-            pfx = PERSON_EVENT_ID_PFX
         else:
             eventParentType = FAMILY_ID_PFX
-            id = mainData.family_fact_id
-            pfx = FAMILY_EVENT_ID_PFX
 
-        event = self.tryFind(self.db.get_event_from_gramps_id, pfx, id)
-        if not event:
-            event = self.tryFind(self.db.get_event_from_gramps_id, EVENT_ID_PFX, id)
+        
+        if self.doReplace(Event):
+            event = self.findByIdsAttributes(id, "event")
 
         mainData.__setattr__("parentType", eventParentType)
 
         return event, self.modifyEvent, Event, data
 
-    def findName(self, data: IndividualLangDataDTO):
+    def findName(self, data: individual_lang_data_DTO):
         name = None
-        parent = getattr(data, "parent", None)
-        if parent:
-            names = [parent.get_primary_name()] + parent.get_alternate_names()
-            name = self.findObjectByAttributes(
-                names,
-                {"first_name": data.first_name}
-            )
+        if self.doReplace(Name):
+            parent = getattr(data, "parent", None)
+            if parent:
+                names = [parent.get_primary_name()] + parent.get_alternate_names()
+                name = self.findObjectByAttributes(
+                    names,
+                    {"first_name": data.first_name}
+                )
 
         return name, self.modifyName, Name, data
 
     def findSurname(self, data: SurnameDTO):
         surname = None
-        parent = getattr(data, "parent", None)
-        if parent:
-            surname = self.findObjectByAttributes(
-                parent.get_surname_list(),
-                {"surname": data.surname}
-            )
+        if self.doReplace(Surname):
+            parent = getattr(data, "parent", None)
+            if parent:
+                surname = self.findObjectByAttributes(
+                    parent.get_surname_list(),
+                    {"surname": data.surname}
+                )
 
         return surname, self.modifySurname, Surname, data
 
     def findAttribute(self, data: AttributeDTO):
         attribute = None
         attClass = Attribute
-        parent = getattr(data, "parent", None)
-        if parent:
-            attribute = self.findObjectByAttributes(
-                parent.get_attribute_list(),
-                {"type": data.type, "value": data.value}
-            )
-            if isinstance(parent, (Citation, Source)):
-                attClass = SrcAttribute
+        if self.doReplace(attClass):
+            parent = getattr(data, "parent", None)
+            if parent:
+                attribute = self.findObjectByAttributes(
+                    parent.get_attribute_list(),
+                    {"type": data.type, "value": data.value}
+                )
+                if isinstance(parent, (Citation, Source)):
+                    attClass = SrcAttribute
 
         return attribute, self.modifyAttribute, attClass, data
 
-    def findNote(self, data: tuple[NoteToItemConnectionDTO, tuple[NoteMainDataDTO, NoteLangDataDTO]]):
+    def findNote(self, data: tuple[note_to_item_connection_DTO, tuple[note_main_data_DTO, note_lang_data_DTO]]):
         if not data: return None, self.modifyPerson, Person, None
         id, _data = data
         if not isinstance(id, int):
             id = id.note_id
-        note = self.tryFind(self.db.get_note_from_gramps_id, NOTE_ID_PFX, id)
+
+        note = None
+        if self.doReplace(Note):
+            note = self.tryFind(self.db.get_note_from_gramps_id, NOTE_ID_PFX, id)
         if not _data:
-            _data = self.fetchData((id, NoteMainDataDTO, True), (id, NoteLangDataDTO))
+            _data = self.fetchData((id, note_main_data_DTO, True), (id, note_lang_data_DTO))
         return note, self.modifyNote, Note, _data
 
-    def findCitation(self, mainData: CitationMainDataDTO):
-        citation = self.tryFind(self.db.get_citation_from_gramps_id, CITATION_ID_PFX, mainData.citation_id)
-        langData = self.fetchData((mainData.citation_id, CitationLangDataDTO))
+    def findCitation(self, mainData: citation_main_data_DTO):
+        citation = None
+        if self.doReplace(Citation):
+            citation = self.tryFind(self.db.get_citation_from_gramps_id, CITATION_ID_PFX, mainData.citation_id)
+        langData = self.fetchData((mainData.citation_id, citation_lang_data_DTO))
         return citation, self.modifyCitation, Citation, (mainData, langData)
 
     def findMedia(self, id):
         if not id: return None, self.modifyPerson, Person, None
         id = id.media_item_id
-        media = self.tryFind(self.db.get_media_from_gramps_id, MEDIA_ID_PFX, id)
-        data = self.fetchData((id, MediaItemMainDataDTO), (id, MediaItemLangDataDTO))
+        data = self.fetchData((id, media_item_main_data_DTO), (id, media_item_lang_data_DTO))
+        guid = data[0].guid
+        
+        media = None
+        if self.doReplace(Media):
+            media = self.findByIdsAttributes(guid, "media")
+        # media = self.tryFind(self.db.get_media_from_gramps_id, MEDIA_ID_PFX, id)
         return media, self.modifyMedia, Media, data
 
     def findSource(self, id):
-        source = self.tryFind(self.db.get_source_from_gramps_id, SOURCE_ID_PFX, id)
-        data = self.fetchData((id, SourceMainDataDTO), (id, SourceLangDataDTO))
+        source = None
+        if self.doReplace(Source):
+            source = self.tryFind(self.db.get_source_from_gramps_id, SOURCE_ID_PFX, id)
+        data = self.fetchData((id, source_main_data_DTO), (id, source_lang_data_DTO))
         return source, self.modifySource, Source, data
 
     def findRepository(self, id):
-        repository = self.tryFind(self.db.get_repository_from_gramps_id, REPOSITORY_ID_PFX, id)
-        data = self.fetchData((id, RepositoryMainDataDTO), (id, RepositoryLangDataDTO))
+        repository = None
+        if self.doReplace(Repository):
+            repository = self.tryFind(self.db.get_repository_from_gramps_id, REPOSITORY_ID_PFX, id)
+        data = self.fetchData((id, repository_main_data_DTO), (id, repository_lang_data_DTO))
         return repository, self.modifyRepository, Repository, data
 
     def findDate(self, data: DateDTO):
         date = None
-        parent = getattr(data, "parent", None)
-        if parent:
-            date = self.findObjectByAttributes(
-                [parent.date],
-                {"dateval": data.value}
-            )
+        if self.doReplace(Date):
+            parent = getattr(data, "parent", None)
+            if parent:
+                date = self.findObjectByAttributes(
+                    [parent.date],
+                    {"dateval": data.value}
+                )
 
         return date, self.modifyDate, Date, data
 
     def findURL(self, data: UrlDTO):
         url = None
-        parent = getattr(data, "parent", None)
-        if parent:
-            url = self.findObjectByAttributes(
-                parent.get_url_list(),
-                {"type": data.type, "path": data.path}
-            )
-            
+        if self.doReplace(Url):
+            parent = getattr(data, "parent", None)
+            if parent:
+                url = self.findObjectByAttributes(
+                    parent.get_url_list(),
+                    {"type": data.type, "path": data.path}
+                )
+                
         return url, self.modifyURL, Url, data
 
     def findAddress(self, data: MHAddress):
         address = None
-        parent = getattr(data, "parent", None)
-        if parent:
-            address = self.findObjectByAttributes(
-                parent.get_address_list(),
-                {"street": data.address}
-            )
-            
+        if self.doReplace(Address):
+            parent = getattr(data, "parent", None)
+            if parent:
+                address = self.findObjectByAttributes(
+                    parent.get_address_list(),
+                    {"street": data.address}
+                )
+                
         return address, self.modifyAddress, Address, data
 
     def findPlace(self, id):
-        place = self.tryFind(self.db.get_place_from_gramps_id, PLACE_ID_PFX, id)
-        data = self.fetchData((id, PlaceLangDataDTO))
+        place = None
+        if self.doReplace(Place):
+            place = self.tryFind(self.db.get_place_from_gramps_id, PLACE_ID_PFX, id)
+        data = self.fetchData((id, places_lang_data_DTO))
         return place, self.modifyPlace, Place, data
     #endregion
 
     #region Modify objects
-    def modifyPerson(self, person: Person, data: tuple[IndividualMainDataDTO, list[IndividualLangDataDTO]]):
+    def modifyPerson(self, person: Person, data: tuple[individual_main_data_DTO, list[individual_lang_data_DTO]]):
         mainData, names = data
         if not (mainData and names): return None
 
@@ -623,14 +717,15 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         defaultAttributes = [
             (privacy, UPD, mainData.last_update),
             (privacy, CRT, mainData.create_timestamp),
-            (privacy, UID, mainData.guid),
+            (privacy, UID, mainData.guid.lower()),
+            (privacy, RIN, formatMHid(mainData.individual_id, "I")),
             (privacy, RES_C, mainData.research_completed)
         ]
         
         events, attributes, urls, addresses, notes = self.unpackFacts(mainData.individual_id, PERSON_ID_PFX, person)
         attributes = defaultAttributes + attributes
-        media = self.formatFetchData(MediaItemToItemConnectionDTO, mainData.token_on_item_id, self.findMedia)
-        citations = self.formatFetchData(CitationMainDataDTO, mainData.token_on_item_id, self.findCitation)
+        media = self.formatFetchData(media_item_to_item_connection_DTO, mainData.token_on_item_id, self.findMedia)
+        citations = self.formatFetchData(citation_main_data_DTO, mainData.token_on_item_id, self.findCitation)
         
         newNames = self.createObjectsList(self.formatList(self.findName, names[1:]))
         newAttributes = self.createObjectsList(
@@ -643,7 +738,7 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         newUrls = self.createObjectsList(urls)
         newAddresses = self.createObjectsList(addresses)
 
-        self.trySetGrampsId(person, mainData.individual_id, PERSON_ID_PFX)
+        self.trySetGrampsId(person, mainData.individual_id, PERSON_ID_PFX, True)
         person.set_privacy(privacy)
         person.set_gender(gender)
         person.set_primary_name(primary_name)
@@ -666,20 +761,22 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
 
         return person
 
-    def modifyFamily(self, family: Family, data: FamilyMainDataDTO):
+    def modifyFamily(self, family: Family, data: family_main_data_DTO):
         mainData = data
         if not mainData: return None
-
+        
         privacy = False
 
         defaultAttributes = [
-            (False, CRT, mainData.create_timestamp)
+            (privacy, UID, mainData.guid.lower()),
+            (privacy, UID, formatMHid(mainData.family_id, "F")),
+            (privacy, CRT, mainData.create_timestamp)
         ]
         
         events, attributes, urls, addresses, notes = self.unpackFacts(mainData.family_id, FAMILY_ID_PFX, family)
         attributes = defaultAttributes + attributes
-        media = self.formatFetchData(MediaItemToItemConnectionDTO, mainData.token_on_item_id, self.findMedia)
-        citations = self.formatFetchData(CitationMainDataDTO, mainData.token_on_item_id, self.findCitation)
+        media = self.formatFetchData(media_item_to_item_connection_DTO, mainData.token_on_item_id, self.findMedia)
+        citations = self.formatFetchData(citation_main_data_DTO, mainData.token_on_item_id, self.findCitation)
         
         newAttributes = self.createObjectsList(
             self.setupRefList(AttributeDTO, family, self.findAttribute, attributes)
@@ -689,7 +786,7 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         newMedia = self.createObjectsList(media)
         newNotes = self.createObjectsList(notes) + self.getNotes(mainData.token_on_item_id)
 
-        self.trySetGrampsId(family, mainData.family_id, FAMILY_ID_PFX)
+        self.trySetGrampsId(family, mainData.family_id, FAMILY_ID_PFX, True)
         family.set_privacy(privacy)
         for attribute in newAttributes:
             family.add_attribute(attribute)
@@ -714,7 +811,6 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         eventParentType = getattr(mainData, "parentType")
         if eventParentType == PERSON_ID_PFX:
             attributes = [
-                (privacy, UID, mainData.guid),
                 (privacy, PERSON_AGE, mainData.age),
                 (privacy, CAUSE_DEAT, langData.cause_of_death)
             ]
@@ -722,11 +818,15 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
             pfx = PERSON_EVENT_ID_PFX
         else:
             attributes = [
-                (privacy, UID, mainData.guid),
                 (privacy, SPOUSE_AGE, mainData.spouse_age)
             ]
             id = mainData.family_fact_id
             pfx = FAMILY_EVENT_ID_PFX
+
+        attributes += [
+            (privacy, UID, mainData.guid.lower()),
+            (privacy, RIN, formatMHid(id, "E"))
+        ]
 
         eventType = self.defineEventType(mainData.token, mainData.fact_type)
         date = self.extract_date(mainData)
@@ -741,7 +841,7 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
                 place = place.get_handle() 
         else: place = ""
 
-        media = self.formatFetchData(MediaItemToItemConnectionDTO, mainData.token_on_item_id, self.findMedia)
+        media = self.formatFetchData(media_item_to_item_connection_DTO, mainData.token_on_item_id, self.findMedia)
         newNotes = self.getNotes(mainData.token_on_item_id)
         newAttributes = self.createObjectsList(
             self.setupRefList(AttributeDTO, event, self.findAttribute, attributes)
@@ -749,7 +849,7 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         newCitations = []
         newMedia = self.createObjectsList(media)
 
-        self.trySetGrampsId(event, id, pfx)
+        self.trySetGrampsId(event, id, pfx, True)
         event.set_privacy(privacy)
         event.set_type(eventType)
         event.set_date_object(date)
@@ -766,7 +866,7 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
 
         return event
 
-    def modifyName(self, name: Name, data: IndividualLangDataDTO):
+    def modifyName(self, name: Name, data: individual_lang_data_DTO):
         if not data: return None
 
         surnames = self.createObjectsList(
@@ -808,7 +908,7 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         att.set_value(data.value)
         return att
     
-    def modifyNote(self, note: Note, data: tuple[NoteMainDataDTO, NoteLangDataDTO]):
+    def modifyNote(self, note: Note, data: tuple[note_main_data_DTO, note_lang_data_DTO]):
         mainData, langData = data
         if not (mainData and langData): return None
 
@@ -817,7 +917,7 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         note.set_styledtext(self.format_text(langData.note_text))
         return note
 
-    def modifyCitation(self, citation: Citation, data: tuple[CitationMainDataDTO, CitationLangDataDTO]):
+    def modifyCitation(self, citation: Citation, data: tuple[citation_main_data_DTO, citation_lang_data_DTO]):
         mainData, langData = data
         if not (mainData and langData): return None
 
@@ -846,7 +946,7 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
 
         return citation
     
-    def modifyMedia(self, media: Media, data: tuple[MediaItemMainDataDTO, MediaItemLangDataDTO]):
+    def modifyMedia(self, media: Media, data: tuple[media_item_main_data_DTO, media_item_lang_data_DTO]):
         mainData, langData = data
         if not (mainData and langData): return None
 
@@ -860,14 +960,15 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
             self.setupRefList(
                 AttributeDTO, media, self.findAttribute,
                 [
-                    (prvt, UID, mainData.guid),
-                    (prvt, DESCR, langData.description)
+                    (prvt, UID, mainData.guid.lower()),
+                    (prvt, DESCR, langData.description),
+                    (prvt, RIN, formatMHid(mediaId, "M"))
                 ]
             )
         )
 
         media.set_path(path)
-        self.trySetGrampsId(media, mediaId, MEDIA_ID_PFX)
+        self.trySetGrampsId(media, mediaId, MEDIA_ID_PFX, True)
         media.set_privacy(prvt)
         media.set_date_object(self.extract_date(mainData))
         media.set_description(langData.title)
@@ -882,7 +983,7 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
 
         return media
 
-    def modifySource(self, source: Source, data: tuple[SourceMainDataDTO, SourceLangDataDTO]):
+    def modifySource(self, source: Source, data: tuple[source_main_data_DTO, source_lang_data_DTO]):
         mainData, langData = data
         if not (mainData and langData): return None
 
@@ -898,7 +999,7 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
             )
         )
         medias = self.createObjectsList(
-            self.formatFetchData(MediaItemToItemConnectionDTO, mainData.token_on_item_id, self.findMedia)
+            self.formatFetchData(media_item_to_item_connection_DTO, mainData.token_on_item_id, self.findMedia)
         )
         
         self.trySetGrampsId(source, mainData.source_id, SOURCE_ID_PFX)
@@ -922,7 +1023,7 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
 
         return source
 
-    def modifyRepository(self, repo: Repository, data: tuple[RepositoryMainDataDTO, RepositoryLangDataDTO]):
+    def modifyRepository(self, repo: Repository, data: tuple[repository_main_data_DTO, repository_lang_data_DTO]):
         mainData, langData = data
         if not (mainData and langData): return None
 
@@ -983,11 +1084,9 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
 
         return address
 
-    def modifyPlace(self, place: Place, data: PlaceLangDataDTO):
+    def modifyPlace(self, place: Place, data: places_lang_data_DTO):
         if not data: return None
         if isEmptyOrWhitespace(data.place) or not data.place or data.place == "": return None
-
-        
 
         self.trySetGrampsId(place, data.place_id, PLACE_ID_PFX)
         placeName = PlaceName()
@@ -1005,7 +1104,7 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
                     self.findNote,
                     self.formatList(
                         None, 
-                        self.fetchData(((id,), NoteToItemConnectionDTO, False)),
+                        self.fetchData(((id,), note_to_item_connection_DTO, False)),
                         True
                     )
                 )
@@ -1145,7 +1244,6 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         # Decode bytes to string
         decoded_text = data
         if not isinstance(data, str):
-            print(f"DECODING")
             decoded_text = data.decode('utf-8', errors='ignore')
 
         # Split the string by specified ASCII control characters (0-31) and special markers (" and *)
@@ -1183,7 +1281,6 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
 
             # Get two chars to the left, or use empty string if out of bounds
             left_context = original_text[max(0, match_position - 2):match_position]
-            # contxt.append(f"\nFRAG: {fragment} -> |{left_context}|")
 
             # Compare left context with the markers to identify the field
             for field, left_marker in markers.items():
@@ -1194,7 +1291,6 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
                 # Check if surrounding left context matches expected marker for this field
                 if left_marker in left_context:
                     # Remove the matched fragment from the original text
-                    # print(f"ORIG_TXT: {original_text}")
                     return field
 
             return ''
@@ -1229,15 +1325,16 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         
         # Create an instance of MHAddress with the parsed values
         newObj = MHAddress(address, address2, city, state, zip_code, country)
-        # print(f"\nTEXT: {decoded_text}\nFRAGS: {text_fragments}\nCONTEXTS: {contxt}\nADDRESS: {newObj}")
         return newObj
 
     def parse_custom_date(self, date_str: str) -> DateDTO:
         # Define default values
         quality, modified = 0, 0
         value = None
+
+        if isinstance(date_str, bytes):
+            date_str = date_str.decode('utf-16', errors='ignore')
         dateText = date_str  # Default to original text if parsing fails
-        
         # Define mappings for the modifiers and quality indicators
         type_modifiers = {
             "FROM": 5,
@@ -1255,11 +1352,19 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
 
         # Regex to identify dates and keywords
         date_regex = r"\b(\d{1,2}) ([A-Z]{3}) (\d{4})\b"
+        date_regex_one = r"\b([A-Z]{3}) (\d{4})\b"
+        date_regex_two = r"\b(\d{4})\b"
         keywords_regex = r"(FROM|TO|BET|AND|EST|ABT|BEF|AFT|CAL)"
         
         # Find all keywords and dates in the string
         keywords = re.findall(keywords_regex, date_str)
         date_matches = re.findall(date_regex, date_str)
+        if not date_matches:
+            date_matches = re.findall(date_regex_one, date_str)
+            date_matches = [tuple(['0', *el]) for el in date_matches]
+        if not date_matches:
+            date_matches = re.findall(date_regex_two, date_str)
+            date_matches = [tuple(['0', '', el]) for el in date_matches]
 
         # Determine if it’s a timespan by checking for specific keywords
         is_timespan = any(keyword in ["FROM", "TO", "BET", "AND"] for keyword in keywords)
@@ -1279,27 +1384,50 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         if is_timespan and len(date_matches) != 2:
             return DateDTO(quality, modified, value, dateText)
         
-        # Determine the date values if dates were found
+        # Determine the date values if dates were found   
         def dateVal(date_matches):
+            def defmonth(mon):
+                monthIndex = {
+                    "JAN": "01",
+                    "FEB": "02",
+                    "MAR": "03",
+                    "APR": "04",
+                    "MAY": "05",
+                    "JUN": "06",
+                    "JUL": "07",
+                    "AUG": "08",
+                    "SEP": "09",
+                    "OCT": "10",
+                    "NOV": "11",
+                    "DEC": "12"
+                }
+
+                if mon:
+                    return datetime.strptime(monthIndex.get(mon), "%m").month
+                else:
+                    return 0
+                
             if len(date_matches) == 1:
                 # Single date case
                 day1, month1, year1 = date_matches[0]
-                day1, month1, year1 = int(day1), datetime.strptime(month1, "%b").month, int(year1)
+                day1, month1, year1 = int(day1), defmonth(month1), int(year1)
                 return (day1, month1, year1, False)
             elif len(date_matches) == 2:
                 # Timespan case
                 day1, month1, year1 = date_matches[0]
                 day2, month2, year2 = date_matches[1]
-                day1, month1, year1 = int(day1), datetime.strptime(month1, "%b").month, int(year1)
-                day2, month2, year2 = int(day2), datetime.strptime(month2, "%b").month, int(year2)
+                day1, month1, year1 = int(day1), defmonth(month1), int(year1)
+                day2, month2, year2 = int(day2), defmonth(month2), int(year2)
                 return (day1, month1, year1, False, day2, month2, year2, False)
         
         try:
             value = dateVal(date_matches)
-        except:
+        except Exception as e:
+            self.log(e)
             try:
                 value = dateVal([date_matches[0]])
-            except:
+            except Exception as e:
+                self.log(e)
                 value = None
 
         # If dates were parsed, update dateText with formatted date, else leave as original text
@@ -1314,36 +1442,39 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
 
         return clean_text.strip()
    
-    def formatId(self, id, typeObj="", num=DEFAULT_NUM_OF_ZEROS_ID):
+    def formatId(self, id, typeObj=""):
         if isinstance(id, tuple):
             id = id[0]
-        return f"{typeObj}{id:0{num}}"
+        form = self.prefixesDict.get(typeObj, "")
+        return form % id
     
-    def getMediaPath(self, photo_id: int):
-        #helper func
-        def find_photos_folder(base_path):
-            for folder_name in FTB_PHOTOS_DIRS:
-                # Check in lowercase
-                lower_folder = os.path.join(base_path, folder_name.lower())
-                if os.path.isdir(lower_folder):
-                    return lower_folder
-                
-                # Check in CamelCase
-                camel_folder = os.path.join(base_path, folder_name.title())
-                if os.path.isdir(camel_folder):
-                    return camel_folder
-                
-                # Check in UPPERCASE
-                upper_folder = os.path.join(base_path, folder_name.upper())
-                if os.path.isdir(upper_folder):
-                    return upper_folder
+    def find_photos_folder(self):
+        path = None
+        base_path = self.path
+        for folder_name in FTB_PHOTOS_DIRS:
+            # Check in lowercase
+            lower_folder = os.path.join(base_path, folder_name.lower())
+            if os.path.isdir(lower_folder):
+                path = lower_folder
             
-            return None
+            # Check in CamelCase
+            camel_folder = os.path.join(base_path, folder_name.title())
+            if os.path.isdir(camel_folder):
+                path = camel_folder
+            
+            # Check in UPPERCASE
+            upper_folder = os.path.join(base_path, folder_name.upper())
+            if os.path.isdir(upper_folder):
+                path = upper_folder
         
-        photos_folder = find_photos_folder(self.path)
+        self.photosPath = path
+        return path
+
+    def getMediaPath(self, photo_id: int):
+        photos_folder = self.photosPath
         
         if not photos_folder:
-            print(f"Media folder not found.")
+            self.log(HINT_GETMEDIA_FLDRNTFND.format(self.path))
             return None
         
         file_prefix = f"P{photo_id}_"
@@ -1351,7 +1482,7 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         matching_files = [f for f in os.listdir(photos_folder) if f.startswith(file_prefix)]
         
         if not matching_files:
-            print(f"File with ID={photo_id} not found.")
+            self.log(HINT_GETMEDIA_FILEIDNTFND.format(photo_id))
             return None
         
         highest_resolution_file = None
@@ -1368,7 +1499,7 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
                         highest_resolution = resolution
                         highest_resolution_file = file_path
             except Exception as e:
-                print(f"Error while working with file {file_path}: {e}")
+                self.log(HINT_GETMEDIA_ERROR.format(file_path, e))
                 continue
         
         return highest_resolution_file
@@ -1405,17 +1536,105 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
             obj = func(f"{id}")
 
         return obj
-    
-    def trySetGrampsId(self, obj, id, idPfx):
-        newId = self.formatId(id, idPfx)
 
-        obj.set_gramps_id(newId)
+    def tryGetHandle(self, obj):
+        try: obj.get_handle()
+        except: return None
 
-    def findObjectByAttributes(self, objects, attributes_dict):
-        for obj in objects:
-            if all(getattr(obj, key, None) == value for key, value in attributes_dict.items()):
+    def getTempObj(self, handle):
+        for obj, _ in self.compares:
+            if self.tryGetHandle(obj) == handle:
                 return obj
         return None
+
+    def findByIdsAttributes(self, id: str, name: str, attType: str = "GUID", notInDb = False):
+        types = {
+            "GUID": UID,
+            "RIN": RIN
+        }
+        attType = types.get(attType)
+        try:
+            if notInDb:
+                handles = [obj for obj, _ in self.compares]
+            else:
+                handles = self.db.method("get_%s_handles", name)()
+            for handle in handles:
+                if not handle: continue
+
+                if notInDb:
+                    obj = handle
+                    if type(obj).__name__.lower() != name: continue
+                else:
+                    obj = self.db.method("get_%s_from_handle", name)(handle)
+                uid = self.findObjectByAttributes(
+                    obj.get_attribute_list(), 
+                    {"type": attType, "value": id.lower()}
+                )
+                if uid:
+                    return obj
+            return None
+        except Exception as e:
+            self.log(HINT_FINDBYID_ERROR.format(name, attType, e))
+            return None
+
+    def trySetGrampsId(self, obj, id, idPfx, find=False):
+        if not isEmptyOrWhitespace(obj.get_gramps_id()): return None
+        if find:
+            newId = self.db.method("find_next_%s_gramps_id", type(obj).__name__.lower())()
+        else:
+            newId = self.formatId(id, idPfx)
+        obj.set_gramps_id(newId)
+        return newId
+
+    def findObjectByAttributes(self, objects, attributes_dict):
+        def lwr(s):
+            if isinstance(s, str):
+                return s.lower()
+            else: return s
+        for obj in objects:
+            if all(lwr(getattr(obj, key, None)) == value for key, value in attributes_dict.items()):
+                return obj
+        return None
+    
+    def getPrefixesFromConfig(self):
+        def form(name):
+            key = f"preferences.{name}prefix"
+            return config.get(key)
+        def pfx(form):
+            return form.split('%')[0]
+
+        MEDIA_ID_FORM = form("o")
+        PERSON_ID_FORM = form("i")
+        FAMILY_ID_FORM = form("f")
+        EVENT_ID_FORM = form("e")
+        PLACE_ID_FORM = form("p")
+        NOTE_ID_FORM = form("n")
+        CITATION_ID_FORM = form("c")
+        SOURCE_ID_FORM = form("s")
+        REPOSITORY_ID_FORM = form("r")
+
+        MEDIA_ID_PFX = pfx(MEDIA_ID_FORM)
+        PERSON_ID_PFX = pfx(PERSON_ID_FORM)
+        FAMILY_ID_PFX = pfx(FAMILY_ID_FORM)
+        EVENT_ID_PFX = pfx(EVENT_ID_FORM)
+        PLACE_ID_PFX = pfx(PLACE_ID_FORM)
+        NOTE_ID_PFX = pfx(NOTE_ID_FORM)
+        CITATION_ID_PFX = pfx(CITATION_ID_FORM)
+        SOURCE_ID_PFX = pfx(SOURCE_ID_FORM)
+        REPOSITORY_ID_PFX = pfx(REPOSITORY_ID_FORM)
+
+        self.prefixesDict = {
+            MEDIA_ID_PFX: MEDIA_ID_FORM,
+            PERSON_ID_PFX: PERSON_ID_FORM,
+            FAMILY_ID_PFX: FAMILY_ID_FORM,
+            EVENT_ID_PFX: EVENT_ID_FORM,
+            PLACE_ID_PFX: PLACE_ID_FORM,
+            NOTE_ID_PFX: NOTE_ID_FORM,
+            CITATION_ID_PFX: CITATION_ID_FORM,
+            SOURCE_ID_PFX: SOURCE_ID_FORM,
+            REPOSITORY_ID_PFX: REPOSITORY_ID_FORM,
+        }
+
     #endregion
 
     #endregion
@@ -1446,7 +1665,7 @@ class FTBDatabaseHandler:
 
     def fetchDbDataDto(self, key, dtoClass, oneRow=True, query=None):
         if query is None:
-            query = dtoClass().query
+            query = dtoClass.query()
             
         if not isinstance(key, tuple):
             key = (key, )
