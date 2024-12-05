@@ -1,4 +1,5 @@
-Import data from MyHeritage Family Tree Builder (FTB) to Gramps.
+Import data from [MyHeritage Family Tree Builder (FTB)](https://www.myheritage.com/family-tree-builder) to Gramps.
+### You can download FTB and sync your tree from [MyHeritage](https://www.myheritage.com) site and transfer it to Gramps.
 
 Addon reads local SQLite file of FTB project DB and **doesn't overwrite it!**
 
