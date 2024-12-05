@@ -63,7 +63,7 @@ def forLog(data):
 #endregion
 
 
-DEV_TEST_BD_PATH = "C:/Users/Sasha/Documents/MyHeritage/1st_1"
+DEV_TEST_BD_PATH = ''
 
 #------------------------------------------------------------------------
 #
