@@ -23,6 +23,10 @@ MENU_LBL_PATH_TITLE = _("FTB Project path")
 MENU_LBL_PATH_TEXT = _("Please select the FTB project path.")
 MENU_LBL_PATH_SELECTED = _("Path selected: {}")
 MENU_LBL_CHOOSE_FILE = _("Choose folder")
+MENU_LBL_CHK_REPLACE = _("Replace data for {}")
+MENU_LBL_TIP_REPLACE = _("If true it try to find if {} object is already exists in gramps and then replace its data with new imported else it wil create new (might duplicate)")
+MENU_LBL_CHK_COPYMEDIA = _("Copy media")
+MENU_LBL_TIP_COPYMEDIA = _("Copy media to user media folder path")
 
 MENU_LBL_PROGRESS_TITLE = _("Progress")
 MENU_LBL_PROGRESS_TEXT = _("Processing is ongoing. Please wait...")
@@ -47,6 +51,8 @@ HINT_HANDLEOBJ_DONTEXISTS = _("Object '{}' not found in Gramps by key '{}'. New 
 HINT_GETMEDIA_FLDRNTFND = _("Media folder not found in {}.")
 HINT_GETMEDIA_FILEIDNTFND = _("File with ID={} not found.")
 HINT_GETMEDIA_ERROR = _("Error while working with file {}: {}")
+HINT_COPYMEDIA_NEW_FOLDER = _("User media folder ({}) does not exists so new folder created")
+HINT_COPYMEDIA_ERROR = _("Error while trying to copy media: {}")
 
 HINT_FINDBYID_ERROR = _("Error while trying to find {} by {}: {}")
 

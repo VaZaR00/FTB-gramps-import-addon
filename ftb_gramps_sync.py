@@ -3,6 +3,8 @@
 # python modules
 #
 #------------------------------------------------------------------------
+from functools import partial
+from inspect import ismethod
 import mimetypes
 import threading
 import time
@@ -13,6 +15,7 @@ from ftb_dto import *
 import sqlite3
 import re
 import os
+import shutil
 from datetime import datetime
 from PIL import Image
 from collections.abc import Iterable
@@ -36,7 +39,7 @@ from gramps.gen.config import config
 """
 TODO:
 1. Changes tab
-2. Copy photos
+2. Copy photos --DONE--
 3. Translation
 """
 
@@ -60,10 +63,16 @@ def forLog(data):
         else: return data.hintKey()
     except:
         return "null"
+
+class TransferSettings(BaseDTO):
+    def __init__(self, *args):
+        self.tryConnect = args[0]
+        self.dataReplace = args[1]
+        self.doCopyMedia = args[2]
 #endregion
 
 
-DEV_TEST_BD_PATH = ''
+DEV_TEST_BD_PATH = 'C:/Users/Sasha/Documents/MyHeritage/1st_1'
 
 #------------------------------------------------------------------------
 #
@@ -107,10 +116,13 @@ class IntroductionPage(Page):
         self._complete = True
 
 class FileSelectorPage(Page):
-    def __init__(self, assistant, tryConnect):
+    def __init__(self, assistant, cfg: TransferSettings):
         super().__init__(assistant)
         
-        self.tryConnect = tryConnect
+        self.tryConnect = cfg.tryConnect
+        self.checkboxes = []
+        self.dataReplace = cfg.dataReplace
+        self.doCopyMedia = cfg.doCopyMedia
 
         label = Gtk.Label(label=MENU_LBL_PATH_TEXT)
         label.set_line_wrap(True)
@@ -132,6 +144,20 @@ class FileSelectorPage(Page):
         self.folder_error = Gtk.Label(label="")
         self.pack_start(self.folder_error, False, False, 5)
 
+        self.doCopyChk = Gtk.CheckButton(label=MENU_LBL_CHK_COPYMEDIA)
+        self.doCopyChk.set_tooltip_text(MENU_LBL_TIP_COPYMEDIA)
+        self.doCopyChk.connect("toggled", self.onCopyMediaToggle) 
+        self.doCopyChk.set_active(self.doCopyMedia())
+        self.pack_start(self.doCopyChk, False, False, 5)
+
+        for option in cfg.dataReplace:
+            checkbox = Gtk.CheckButton(label=MENU_LBL_CHK_REPLACE.format(option.__name__))
+            checkbox.set_tooltip_text(MENU_LBL_TIP_REPLACE.format(option.__name__))
+            checkbox.connect("toggled", partial(self.on_checkbox_toggled, option)) 
+            checkbox.set_active(cfg.dataReplace[option])
+            self.pack_start(checkbox, False, False, 5)
+            self.checkboxes.append(checkbox)
+
         self.selected_file_path = None
         self._complete = False
 
@@ -139,6 +165,14 @@ class FileSelectorPage(Page):
             self.set_complete()
 
         self.show_all()
+
+    def onCopyMediaToggle(self, widget):
+        state = widget.get_active()  
+        self.doCopyMedia(state)
+
+    def on_checkbox_toggled(self, key, widget):
+        state = widget.get_active()  
+        self.dataReplace.update({key: state})
 
     def on_file_selected(self, widget):
         """File selector handler."""
@@ -222,12 +256,20 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         self.compares = []
         self.processing_complete = False
         self.succesfuly = True
+        self._doCopyMedia = False
 
         if DEV_TEST_BD_PATH:
             self.tryConnectSQLdb(self.path)
 
         self.getConfigs()
         self.createGUI()
+
+    #region Properties
+    def doCopyMedia(self, val: bool = None):
+        if val and isinstance(val, bool):
+            self._doCopyMedia = val
+        else: return self._doCopyMedia
+    #endregion
 
     #------------------------------------------------------------------------
     #
@@ -246,7 +288,7 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         self.intro_page = IntroductionPage(self.assistant)
         self.add_page(self.intro_page, Gtk.AssistantPageType.INTRO, MENU_LBL_INTRO_TITLE)
 
-        self.file_sel_page = FileSelectorPage(self.assistant, self.tryConnectSQLdb)
+        self.file_sel_page = FileSelectorPage(self.assistant, self.guiSettings)
         self.add_page(self.file_sel_page, Gtk.AssistantPageType.CONTENT, MENU_LBL_PATH_TITLE)
 
         self.progress_page = ProgressPage(self.assistant)
@@ -274,7 +316,7 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
 
     def proccesAsync(self):
         self.log(HINT_PROCCESING)
-        time.sleep(2) # temporary, to let next page load
+        time.sleep(1) # temporary, to let next page load
         GLib.idle_add(self.start_processing)
         self.progress_page.set_complete()
 
@@ -331,6 +373,8 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
             Address: True,
             Place: True,
         }
+        self.guiSettings = TransferSettings(self.tryConnectSQLdb, self.dataReplace, self.doCopyMedia)
+        self.userMediaFolder = self.db.get_mediapath()
         self.getPrefixesFromConfig()
 
     def start_processing(self):
@@ -1502,7 +1546,31 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
                 self.log(HINT_GETMEDIA_ERROR.format(file_path, e))
                 continue
         
-        return highest_resolution_file
+        # try copy media else return its initial path
+        resultFile = None
+        if self.doCopyMedia():
+            resultFile = self.copyMedia(highest_resolution_file)
+        if not resultFile:
+            resultFile = highest_resolution_file
+        
+        return resultFile
+
+    def copyMedia(self, oldPath):
+        try:
+            mediaFolder = self.userMediaFolder
+
+            if not os.path.exists(mediaFolder):
+                os.makedirs(mediaFolder)
+                self.log(HINT_COPYMEDIA_NEW_FOLDER.format(mediaFolder))
+
+            fileName = os.path.basename(oldPath)
+            newPath = os.path.join(mediaFolder, fileName)
+
+            shutil.copy2(oldPath, newPath)
+            return newPath
+        except Exception as e:
+            self.log(HINT_COPYMEDIA_ERROR.format(e))
+            return None
 
     def formatFetchData(self, dto, arg, findFunc):
         data_list = self.fetchData(((arg,), dto, False))
