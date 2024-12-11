@@ -16,11 +16,11 @@ In Gramps navigate to
 
 Than read instruction in addons menu.
 
-![instruction](https://github.com/user-attachments/assets/72eac2ab-e892-4578-af1c-9d0431e3f8c6)
+![menu_intro](https://github.com/user-attachments/assets/856a8e04-c964-4b88-b318-e6d03c0fd14e)
 
-You will have to choose folder path of your FTB family tree project
+You will have to choose folder path of your FTB family tree project and you can manage some options
 
-![path](https://github.com/user-attachments/assets/4c3aacd9-1692-4271-b608-3e609e2c8997)
+![menu_file](https://github.com/user-attachments/assets/5ba69a8a-063d-415e-ad5c-64e776e6482a)
 
 Which you can get in FTB:
 "File" -> "Manage Projects"
@@ -31,10 +31,14 @@ _select your project_ -> click "Go to Folder" button
 
 ![ftb_select](https://github.com/user-attachments/assets/2a494412-edce-4c2f-b4ae-e9ab4830ce84)
 
+Than you can manage what data you want to import by checking "Commit" flag
+
+![handle](https://github.com/user-attachments/assets/67d00082-fdb5-469f-b329-97f484b720e8)
+
 # How it works
 It reads local SQLite database file of FTB project.
 It iterates through each person in FTB database and transfer all connected to them data
 such as Facts, Notes, Media, Citates and so on...
 And then iterate through each family in FTB database transfering its data too and connecting persons.
-It tries to find if that object is already in gramps by its id (gramps_id formated to X000N).
-If object exists it replaces all non referenced values (strings, numbers, etc.) with FTB values, than iterates through objects reference list (attributes, notes, media, etc.) and tries to find it by id or by name and value (attributes, urls) and replace data there, or create new object.
+It tries to find if that object is already in gramps by its _UID attribute for Person, Family, Event, Media and id (gramps_id formated to X000N) for other objects.
+If object exists and you "Commited" it in "Handle Chnages" tab it replaces all non referenced values (strings, numbers, etc.) with FTB values, than iterates through objects reference list (attributes, notes, media, etc.) and tries to find it by id or by name and value (attributes, urls) and replace data there, or create new object.
