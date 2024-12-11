@@ -36,6 +36,10 @@ from gramps.gui.plug.tool import BatchTool, ToolOptions
 from gramps.gen.config import config
 from gramps.gen.lib.refbase import RefBase
 
+DEV_TEST_BD_PATH = ''
+
+CHANGES_COMMIT_MAIN_CLASSES = (Person, Family, Repository, Media, Source, Place)
+
 """
 TODO:
 1. Translation
@@ -149,11 +153,6 @@ class ToConnectReferenceObjects(BaseDTO):
     place: object = None
 
 #endregion
-
-
-DEV_TEST_BD_PATH = ''
-
-CHANGES_COMMIT_MAIN_CLASSES = (Person, Family, Repository, Media, Source, Place)
 
 #------------------------------------------------------------------------
 #
@@ -328,6 +327,10 @@ class HandleChanges(Page):
         self.expanders = []
 
         self.set_border_width(10)
+
+        title_lbl = Gtk.Label(label=MENU_LBL_HDNLCHNG_TEXT)
+        title_lbl.set_xalign(0)
+        self.pack_start(title_lbl, False, False, 0)
 
         self.create_buttons()
         self.create_header_row()

@@ -10,9 +10,10 @@ This tool transfers data from MyHeritage Family Tree Builder (FTB).\n
 It iterates through each person and transfer all connected to them data
 such as Facts, Notes, Media, Citates and so on...
 And then iterate through each family transfering its data too and connecting persons.\n
-On next page please select folder of your FTB project.\n
+On next page please select folder of your FTB project and manage some options.\n
 You can get its path in FTB program by: \n
 click "File" -> "Manage Projects" -> select your project -> click "Go to Folder" button on the right \n
+After progress ended, you can choose what to commit in Handle Changes page.
 \n
 \n
 For more info go to GitHub: 
@@ -32,7 +33,7 @@ MENU_LBL_PROGRESS_TITLE = _("Progress")
 MENU_LBL_PROGRESS_TEXT = _("Processing is ongoing. Please wait...")
 
 MENU_LBL_HDNLCHNG_TITLE = _("Handle changes")
-MENU_LBL_HDNLCHNG_TEXT = _("Handle gramps changes")
+MENU_LBL_HDNLCHNG_TEXT = _("Handle gramps changes\nYou can manage what data/objects to commit\n")
 MENU_LBL_HDNLCHNG_TABLE_NAME = _("Name")
 MENU_LBL_HDNLCHNG_TABLE_NEW = _("New value")
 MENU_LBL_HDNLCHNG_TABLE_OLD = _("Old value")
