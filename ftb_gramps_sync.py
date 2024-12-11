@@ -4,7 +4,6 @@
 #
 #------------------------------------------------------------------------
 from functools import partial
-from inspect import ismethod
 import mimetypes
 import threading
 import time
@@ -35,6 +34,7 @@ from gramps.gen.lib import *
 from gramps.gen.utils.id import create_id
 from gramps.gui.plug.tool import BatchTool, ToolOptions
 from gramps.gen.config import config
+from gramps.gen.lib.refbase import RefBase
 
 """
 TODO:
@@ -44,7 +44,7 @@ TODO:
 """
 
 #region Helpers
-def isEmptyOrWhitespace(s):
+def isEmptyOrWhitespace(s) -> bool:
     return not s or s.strip() == ""
 
 def getValFromMap(data_map, search_key, indx):
@@ -53,7 +53,7 @@ def getValFromMap(data_map, search_key, indx):
             return tupl[indx]
     return None
 
-def formatMHid(id, pfx):
+def formatMHid(id, pfx) -> str:
         return f"MH:{pfx}{id:0{DEFAULT_NUM_OF_ZEROS_ID_MH}}"
 
 def forLog(data):
@@ -64,11 +64,70 @@ def forLog(data):
     except:
         return "null"
 
+def clsName(obj) -> str:
+    return type(obj).__name__.lower()
+
+def clearNones(arr):
+    return [el for el in arr if el is not None]
+
+def toArr(s):
+    if not isinstance(s, (list, tuple)):
+        return [s]
+    return s
+
+def getFromListByKey(arr, key, default=-1, returnIndex=0, findIndex=0, returnAll=False):
+    for el in arr:
+        if el[findIndex] == key:
+            if returnAll:
+                return el
+            return el[returnIndex]
+
+    return default
+
+def getReferencedObjects(obj, func=lambda a: a):
+    genTypes = ("note", "citation", "attribute", "media", "address", "url", "event_ref", "surname", "reporef")
+    methodNames = ["get_alternate_names", "get_reference_handle"]
+    resList = []
+
+    for typ in genTypes:
+        methodNames.append("get_" + typ + "_list")
+
+    for methodName in methodNames:
+        try:
+            method = BaseDTO.method(obj, methodName)
+            
+            if not method: continue
+
+            refs = toArr(method())
+            # print(f'\n++{methodName.upper()}: {refs}\n method: {method}\n')
+            
+            for ref in refs:
+                resList.append(func(ref))
+        except Exception as e:
+            pass
+            # print(f"GET SECONDARY: {e}")
+
+    return resList
+
 class TransferSettings(BaseDTO):
     def __init__(self, *args):
         self.tryConnect = args[0]
         self.dataReplace = args[1]
         self.doCopyMedia = args[2]
+
+class ToConnectReferenceObjects(BaseDTO):
+    obj: object = None
+    notes: list = []
+    attributes: list = []
+    medias: list = []
+    events: list = []
+    citations: list = []
+    urls: list = []
+    addresses: list = []
+    surnames: list = []
+    repositories: list = []
+    source: object = None
+
 #endregion
 
 
@@ -120,43 +179,57 @@ class FileSelectorPage(Page):
         super().__init__(assistant)
         
         self.tryConnect = cfg.tryConnect
-        self.checkboxes = []
         self.dataReplace = cfg.dataReplace
         self.doCopyMedia = cfg.doCopyMedia
+        self.checkboxes = []
+
+        main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
+        main_box.set_margin_top(10)
+        main_box.set_margin_bottom(10)
+        main_box.set_margin_start(10)
+        main_box.set_margin_end(10)
 
         label = Gtk.Label(label=MENU_LBL_PATH_TEXT)
         label.set_line_wrap(True)
         label.set_use_markup(True)
         label.set_max_width_chars(60)
-        self.pack_start(label, False, False, 0)
-        
+        main_box.pack_start(label, False, False, 0)
+
         self.file_chooser = Gtk.FileChooserButton(
-            title=MENU_LBL_CHOOSE_FILE, 
+            title=MENU_LBL_CHOOSE_FILE,
             action=Gtk.FileChooserAction.SELECT_FOLDER
         )
         self.file_chooser.set_width_chars(50)
         self.file_chooser.connect("file-set", self.on_file_selected)
-        self.pack_start(self.file_chooser, False, False, 5)
+        main_box.pack_start(self.file_chooser, False, False, 5)
 
         self.file_path_label = Gtk.Label(label="")
-        self.pack_start(self.file_path_label, False, False, 5)
+        main_box.pack_start(self.file_path_label, False, False, 5)
 
         self.folder_error = Gtk.Label(label="")
-        self.pack_start(self.folder_error, False, False, 5)
+        main_box.pack_start(self.folder_error, False, False, 5)
 
         self.doCopyChk = Gtk.CheckButton(label=MENU_LBL_CHK_COPYMEDIA)
         self.doCopyChk.set_tooltip_text(MENU_LBL_TIP_COPYMEDIA)
-        self.doCopyChk.connect("toggled", self.onCopyMediaToggle) 
+        self.doCopyChk.connect("toggled", self.onCopyMediaToggle)
         self.doCopyChk.set_active(self.doCopyMedia())
-        self.pack_start(self.doCopyChk, False, False, 5)
+        main_box.pack_start(self.doCopyChk, False, False, 5)
 
         for option in cfg.dataReplace:
             checkbox = Gtk.CheckButton(label=MENU_LBL_CHK_REPLACE.format(option.__name__))
             checkbox.set_tooltip_text(MENU_LBL_TIP_REPLACE.format(option.__name__))
-            checkbox.connect("toggled", partial(self.on_checkbox_toggled, option)) 
+            checkbox.connect("toggled", partial(self.on_checkbox_toggled, option))
             checkbox.set_active(cfg.dataReplace[option])
-            self.pack_start(checkbox, False, False, 5)
+            main_box.pack_start(checkbox, False, False, 5)
             self.checkboxes.append(checkbox)
+
+        scrolled_window = Gtk.ScrolledWindow()
+        scrolled_window.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        scrolled_window.set_min_content_height(200)
+        scrolled_window.set_max_content_height(400)
+        scrolled_window.add(main_box)
+
+        self.pack_start(scrolled_window, True, True, 0)
 
         self.selected_file_path = None
         self._complete = False
@@ -224,6 +297,190 @@ class ProgressPage(Page):
         self.pack_start(self.scroll_window, True, True, 10)
         self.show_all()
 
+class HandleChanges(Page):
+    """A page to handle Gramps changes."""
+
+    def __init__(self, assistant):
+        super().__init__(assistant)
+        self.commitChkboxes = []
+        self.expanders = []
+
+        self.set_border_width(10)
+
+        self.create_buttons()
+        self.create_header_row()
+
+        self.data_area = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1)
+
+        scrolled_window = Gtk.ScrolledWindow()
+        scrolled_window.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        scrolled_window.set_min_content_height(200)
+        scrolled_window.set_max_content_height(400)
+        scrolled_window.add(self.data_area)
+
+        self.pack_start(self.data_area, True, True, 0)
+        self.pack_start(scrolled_window, True, True, 0)
+
+    def create_object_block(self, obj: ObjectHandle = ObjectHandle(), level=0):
+        """Create a block to display an ObjectHandle with nested attributes and objects."""
+        # Main frame for the block with rounded edges
+        frame = Gtk.Frame()
+        frame.set_shadow_type(Gtk.ShadowType.IN)
+        frame.set_margin_start(20 * level)  # Indent based on nesting level
+        frame.set_margin_top(2)
+        frame.set_margin_bottom(2)
+
+        # Vertical box inside the frame
+        main_vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1)
+        frame.add(main_vbox)
+
+        # Header box for the object name and commit checkbox
+        header_hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=1)
+        header_hbox.set_margin_start(5)
+        header_hbox.set_margin_end(5)
+
+        # Expander for toggle
+        expander_toggle = Gtk.Expander(label=obj.name)
+        expander_toggle.set_expanded(False)  # Start unexpanded
+        expander_toggle.set_hexpand(False)  # Prevent expanding unnecessarily
+        self.expanders.append(expander_toggle)
+
+        # Commit checkbox
+        commit_checkbox = Gtk.CheckButton()
+        commit_checkbox.set_active(obj.commited)
+        commit_checkbox.set_halign(Gtk.Align.END)
+        commit_checkbox.set_valign(Gtk.Align.START)
+        commit_checkbox.connect("toggled", partial(self.onCommitCheck, obj))
+        self.linkCheckboxes(obj, commit_checkbox)
+
+        # Pack the expander and checkbox into the header
+        header_hbox.pack_start(expander_toggle, True, True, 0)
+        header_hbox.pack_end(commit_checkbox, False, False, 0)
+        main_vbox.pack_start(header_hbox, False, False, 0)
+
+        # Content box for attributes and secondary objects
+        content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1)
+
+        # Attributes table
+        attr_listbox = Gtk.ListBox()
+        for attr in obj.attributes:
+            row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+            name_label = Gtk.Label(label=attr.name)
+            new_value_label = Gtk.Label(label=attr.newValue)
+            old_value_label = Gtk.Label(label=attr.oldValue)
+
+            name_label.set_xalign(0)
+            new_value_label.set_xalign(0.5)
+            old_value_label.set_xalign(1)
+
+            row.pack_start(name_label, True, True, 0)
+            row.pack_start(new_value_label, True, True, 0)
+            row.pack_start(old_value_label, True, True, 0)
+            attr_listbox.add(row)
+
+        attr_listbox.show_all()
+        content_box.pack_start(attr_listbox, False, False, 0)
+
+        # Secondary objects
+        if obj.secondaryObjects:
+            for secondary in obj.secondaryObjects:
+                secondary_block = self.create_object_block(secondary, level=level + 1)
+                content_box.pack_start(secondary_block, False, False, 0)
+
+        # Add the content box to the expander
+        expander_toggle.add(content_box)
+        expander_toggle.show_all()
+
+        # Add the expander content to the main vertical box
+        main_vbox.pack_start(content_box, False, False, 0)
+
+        # Return the entire frame
+        frame.show_all()
+        return frame
+
+    def create_buttons(self):
+        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+
+        fold_all_btn = Gtk.Button(label=MENU_LBL_HDNLCHNG_TABLE_FOLD_ALL)
+        fold_all_btn.connect("clicked", self.foldAll)
+
+        unfold_all_btn = Gtk.Button(label=MENU_LBL_HDNLCHNG_TABLE_UNFOLD_ALL)
+        unfold_all_btn.connect("clicked", self.unfoldAll)
+
+        commit_all_button = Gtk.Button(label=MENU_LBL_HDNLCHNG_TABLE_COMMIT_ALL)
+        commit_all_button.set_halign(Gtk.Align.END)
+        commit_all_button.set_valign(Gtk.Align.START)
+        commit_all_button.connect("clicked", self.commit_all)
+
+        box.pack_start(fold_all_btn, False, False, 0)
+        box.pack_start(unfold_all_btn, False, False, 0)
+        box.pack_start(commit_all_button, False, False, 0)
+        self.pack_start(box, False, False, 0)
+
+    def foldAll(self, widget):
+        self.setFoldState(False)
+
+    def unfoldAll(self, widget):
+        self.setFoldState(True)
+
+    def setFoldState(self, state):
+        for exp in self.expanders:
+            exp.set_expanded(state)
+
+    def create_header_row(self):
+        """Create a global header row for the page."""
+        header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        name_label = Gtk.Label(label=MENU_LBL_HDNLCHNG_TABLE_NAME)
+        new_value_label = Gtk.Label(label=MENU_LBL_HDNLCHNG_TABLE_NEW)
+        old_value_label = Gtk.Label(label=MENU_LBL_HDNLCHNG_TABLE_OLD)
+        commit_label = Gtk.Label(label=MENU_LBL_HDNLCHNG_TABLE_COMMIT)
+        
+        name_label.set_xalign(0.1)
+        new_value_label.set_xalign(0.45)
+        old_value_label.set_xalign(0.85)
+        commit_label.set_xalign(1)
+        
+        header.pack_start(name_label, True, True, 0)
+        header.pack_start(new_value_label, True, True, 0)
+        header.pack_start(old_value_label, True, True, 0)
+        header.pack_start(commit_label, True, True, 0)
+        header.show_all()
+        self.pack_start(header, False, False, 0)
+        return header
+
+    def display_changes(self, objects: list[ObjectHandle]):
+        """Display all objects and their changes."""
+        for obj in objects:
+            obj_block = self.create_object_block(obj)
+            self.data_area.pack_start(obj_block, False, False, 0)
+        self.data_area.show_all()
+
+    def onCommitCheck(self, obj: ObjectHandle, widget):
+        chk = widget.get_active()
+        obj.commited = chk
+        self.checkLinkedChkboxes(obj, chk)
+        for sobj in obj.secondaryObjects:
+            self.checkLinkedChkboxes(sobj, chk)
+
+    def commit_all(self, widget):
+        for obj, chk in self.commitChkboxes:
+            chk.set_active(True)
+
+    def linkCheckboxes(self, obj, chkbox):
+        exist = getFromListByKey(self.commitChkboxes, obj, None, returnAll=True)
+        if exist:
+            i = self.commitChkboxes.index(exist)
+            self.commitChkboxes[i] = (*exist, chkbox)
+        else:
+            self.commitChkboxes.append((obj, chkbox))
+
+    def checkLinkedChkboxes(self, obj, state):
+        chks = getFromListByKey(self.commitChkboxes, obj, None, returnAll=True)
+        if chks:
+            _, *chkboxes = chks
+            for chk in chkboxes:
+                chk.set_active(state)
+
 class FinishPage(Page):
     """The finish page."""
 
@@ -251,9 +508,10 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         self.dbHandler = None # Access to FTB SQL db
         self.connectedToFTBdb = False
         self.path = DEV_TEST_BD_PATH # File path chosen by user
-        self.toCommit = []  # Log entries
-        self.logs = []  # Log entries
+        self.toCommit = [] 
+        self.logs = []  
         self.compares = []
+        self.familyToConnect = []
         self.processing_complete = False
         self.succesfuly = True
         self._doCopyMedia = False
@@ -284,7 +542,8 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         self.assistant.connect("close", self.do_close)
         self.assistant.connect("cancel", self.do_close)
         self.assistant.connect("prepare", self.prepare)
-        
+        self.assistant.connect("apply", self.apply)
+
         self.intro_page = IntroductionPage(self.assistant)
         self.add_page(self.intro_page, Gtk.AssistantPageType.INTRO, MENU_LBL_INTRO_TITLE)
 
@@ -294,6 +553,9 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         self.progress_page = ProgressPage(self.assistant)
         self.add_page(self.progress_page, Gtk.AssistantPageType.PROGRESS, MENU_LBL_PROGRESS_TITLE)
 
+        self.handle_change_page = HandleChanges(self.assistant)
+        self.add_page(self.handle_change_page, Gtk.AssistantPageType.CONFIRM, MENU_LBL_HDNLCHNG_TITLE)
+        
         self.finish_page = FinishPage(self.assistant)
         self.add_page(self.finish_page, Gtk.AssistantPageType.SUMMARY, MENU_LBL_FINISH_TITLE)
     
@@ -311,6 +573,10 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
                 self.assistant.previous_page()
         elif page == self.file_sel_page:
             pass
+        elif page == self.handle_change_page:
+            self.objectsList: list[ObjectHandle] = self.createCompareObjectsList()
+            page.display_changes(self.objectsList)
+            page.set_complete()
         else:
             page.set_complete()
 
@@ -334,6 +600,18 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         self.window.move(position[0], position[1])
         self.close()
     
+    def apply(self, assistant):
+        """Apply the changes."""
+        page_number = assistant.get_current_page()
+        page = assistant.get_nth_page(page_number)
+        if page == self.handle_change_page:
+            try:
+                self.createCommitList()
+                print(self.toCommit)
+                self.commitChanges()
+            except:
+                self.log("ERROR WHILE APPLYING")
+
     def forward_page(self, page, data):
         """Specify the next page to be displayed."""
 
@@ -388,8 +666,6 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
             self.log(HINT_PROCCES_ERROR.format(e))
             self.cancelChanges()
             raise e
-        
-        self.dbState.signal_change()
 
     def run(self):
         self.find_photos_folder()
@@ -402,11 +678,6 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
 
         for id in allFamiliesIds:
             self.handleObject(self.findFamily, id, False, False)
-
-        for obj, _ in self.compares:
-            name = type(obj).__name__.lower()
-            self.grampsDbMethod(obj, name, "add_%s")
-            self.grampsDbMethod(obj, name)
 
         if self.succesfuly:
             self.log(HINT_PROCCES_DONE_S)
@@ -529,6 +800,16 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         if method:
             return method(obj, self.trans)
 
+    def addFamilyConn(self, family, id):
+        self.familyToConnect.append((family, id))
+
+    def connectFamilies(self):
+        for family, id in self.familyToConnect:
+            if family in self.toCommit:
+                try:
+                    self.setFamilyMembers(family, id)
+                except: pass
+
     def setFamilyMembers(self, family: Family, familyId):
         membersConnections: tuple[family_individual_connection_DTO] = self.fetchData((familyId, family_individual_connection_DTO, False))
         for member in membersConnections:
@@ -546,7 +827,7 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
                 family.set_mother_handle(handle)
                 self.setPersonFamilyList(person, family.get_handle(), 1)
             else:
-                childList = [self.getTempObj(child.ref) for child in family.get_child_ref_list()]
+                childList = [self.db.get_person_from_handle(child.ref) for child in family.get_child_ref_list()]
                 child = self.findObjectByAttributes(
                     childList,
                     {"handle": person.get_handle()}
@@ -573,14 +854,112 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
 
                 self.setPersonFamilyList(person, family.get_handle(), 0)
 
-            self.addCompare((person, None))
+            # self.addCompare((person, None))
+            self.grampsDbMethod(person, "person")
+            self.grampsDbMethod(family, "family")
 
     def cancelChanges(self):
         self.db.undo()
     
-    def addCompare(self, c):
-        self.compares.append(c)
+    def createCompareObjectsList(self) -> list[ObjectHandle]:
+        objects = []
+        self.allObjectHandles: list[ObjectHandle] = []
+
+        self.compareDto = CompareDTO()
+        
+        # print(f"--COMPARE\n{self.compares}\n--\n")
+
+        for new, old in self.compares:
+            if isinstance(new, (Person, Family, Repository)):
+                obj = self.createObjectHandle(new, old)
+                if obj:
+                    objects.append(obj)
+
+        # print(objects)
+        return objects
     
+    def createObjectHandle(self, new, old):
+        exists = self.objectHandleExists(new)
+        if exists: return exists
+
+        attrsNew = self.compareDto.getAttributes(new)
+        attrsOld = self.compareDto.getAttributes(old)
+
+        if not attrsNew: return None
+        if not attrsOld: attrsOld = dict()
+
+        attHandlesList = [AttributeHandle(key, val, attrsOld.get(key, None)) for key, val in attrsNew.items()]
+        secondaryObjs = clearNones([self.createObjectHandle(obj, self.getFromCompareList(obj, None)) for obj in self.getSecondaryObjects(new)])
+
+        res = ObjectHandle(
+            clsName(new).title(),
+            True,
+            attHandlesList,
+            secondaryObjs,
+            new
+        )
+        self.allObjectHandles.append(res)
+        return res
+
+    def objectHandleExists(self, obj):
+        for o in self.allObjectHandles:
+            if o.objRef == obj:
+                return o
+        return None
+
+    def getSecondaryObjects(self, obj) -> list:
+        def do(ref):
+            if isinstance(ref, RefBase):
+                return self.getTempObj(ref.get_reference_handle())
+            elif isinstance(ref, str):
+                return self.getTempObj(ref)
+            return ref
+
+        return getReferencedObjects(obj, do)
+
+    def addCompare(self, c):
+        new, old = c
+
+        if self.getFromCompareList(new) != -1: return
+
+        self.compares.append((new, old))
+    
+    def getFromCompareList(self, key, default=-1):
+        return getFromListByKey(self.compares, key, default)
+
+    def createCommitList(self):
+        for obj in self.objectsList:
+            if obj.commited:
+                for sobj in obj.secondaryObjects:
+                    if sobj.commited:
+                        self.toCommit.append(sobj.objRef)
+                self.toCommit.append(obj.objRef)
+
+    # def clearEmptyRefs(self, obj):
+    #     def do(ref):
+    #         if isinstance(ref, RefBase):
+    #             pass
+    #         elif isinstance(ref, RefBase):
+    #             pass
+
+    #     getReferencedObjects(obj, do)
+
+    def connectRefs(self, obj):
+        pass
+
+    def commitChanges(self):
+        for obj in self.toCommit:
+            name = clsName(obj)
+            self.connectRefs(obj)
+            self.grampsDbMethod(obj, name, "add_%s")
+            self.grampsDbMethod(obj, name)
+            # self.clearEmptyRefs(obj)
+            # self.grampsDbMethod(obj, name)
+
+        self.connectFamilies()
+        self.db.transaction_commit(self.trans)
+        self.dbState.signal_change()
+
     def doReplace(self, type):
         return self.dataReplace.get(type, False)
     #endregion
@@ -843,8 +1222,9 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         for note in newNotes:
             family.add_note(note.get_handle())
 
-        self.setFamilyMembers(family, mainData.family_id)
-
+        # self.setFamilyMembers(family, mainData.family_id)
+        self.addFamilyConn(family, mainData.family_id)
+        
         return family
 
     def modifyEvent(self, event: Event, data: tuple):
@@ -961,6 +1341,43 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         note.set_styledtext(self.format_text(langData.note_text))
         return note
 
+    def modifyMedia(self, media: Media, data: tuple[media_item_main_data_DTO, media_item_lang_data_DTO]):
+        mainData, langData = data
+        if not (mainData and langData): return None
+
+        mediaId = mainData.media_item_id
+        path = self.getMediaPath(mediaId)
+        if not path: return None
+
+        prvt = bool(mainData.is_privatized)
+        notes = self.getNotes(mainData.token_on_item_id)
+        attributes = self.createObjectsList(
+            self.setupRefList(
+                AttributeDTO, media, self.findAttribute,
+                [
+                    (prvt, UID, mainData.guid.lower()),
+                    (prvt, DESCR, langData.description),
+                    (prvt, RIN, formatMHid(mediaId, "M"))
+                ]
+            )
+        )
+
+        self.trySetGrampsId(media, mediaId, MEDIA_ID_PFX, True)
+        media.set_path(path)
+        media.set_privacy(prvt)
+        media.set_date_object(self.extract_date(mainData))
+        media.set_description(langData.title)
+        for attribute in attributes:
+            media.add_attribute(attribute)
+        for note in notes:
+            media.add_note(note.get_handle())
+        # deal with mime types
+        value = mimetypes.guess_type(media.get_path())
+        if value and value[0]:  # found from filename
+            media.set_mime_type(value[0])
+
+        return media
+
     def modifyCitation(self, citation: Citation, data: tuple[citation_main_data_DTO, citation_lang_data_DTO]):
         mainData, langData = data
         if not (mainData and langData): return None
@@ -990,43 +1407,6 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
 
         return citation
     
-    def modifyMedia(self, media: Media, data: tuple[media_item_main_data_DTO, media_item_lang_data_DTO]):
-        mainData, langData = data
-        if not (mainData and langData): return None
-
-        mediaId = mainData.media_item_id
-        path = self.getMediaPath(mediaId)
-        if not path: return None
-
-        prvt = bool(mainData.is_privatized)
-        notes = self.getNotes(mainData.token_on_item_id)
-        attributes = self.createObjectsList(
-            self.setupRefList(
-                AttributeDTO, media, self.findAttribute,
-                [
-                    (prvt, UID, mainData.guid.lower()),
-                    (prvt, DESCR, langData.description),
-                    (prvt, RIN, formatMHid(mediaId, "M"))
-                ]
-            )
-        )
-
-        media.set_path(path)
-        self.trySetGrampsId(media, mediaId, MEDIA_ID_PFX, True)
-        media.set_privacy(prvt)
-        media.set_date_object(self.extract_date(mainData))
-        media.set_description(langData.title)
-        for attribute in attributes:
-            media.add_attribute(attribute)
-        for note in notes:
-            media.add_note(note.get_handle())
-        # deal with mime types
-        value = mimetypes.guess_type(media.get_path())
-        if value and value[0]:  # found from filename
-            media.set_mime_type(value[0])
-
-        return media
-
     def modifySource(self, source: Source, data: tuple[source_main_data_DTO, source_lang_data_DTO]):
         mainData, langData = data
         if not (mainData and langData): return None
@@ -1585,7 +1965,7 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
             else: return (add, item)
 
         res = [do(add, item) for item in data_list]
-        return [el for el in res if el is not None]
+        return clearNones(res)
 
     def setupRefList(self, newClass, parent, findFunc, list):
         list = [newClass(*item, parent=parent) for item in list]
@@ -1606,12 +1986,16 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         return obj
 
     def tryGetHandle(self, obj):
-        try: obj.get_handle()
+        try: return obj.get_handle()
         except: return None
 
     def getTempObj(self, handle):
         for obj, _ in self.compares:
-            if self.tryGetHandle(obj) == handle:
+            objHndl = self.tryGetHandle(obj)
+            # print(f"Obj: {obj}, hndl: {hnd} vs {handle}, EQ? {hnd}")
+            # print(f"hndl: {hnd} vs {handle}, EQ? {hnd}")
+            if objHndl == handle:
+                # print(f"FOUNDED!!!!!!!!!!")
                 return obj
         return None
 

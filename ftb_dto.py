@@ -1,3 +1,12 @@
+from gramps.gen.lib import *
+
+# class Date:
+#     pass
+# class StyledText:
+#     pass
+# class PlaceName:
+#     pass
+
 class BaseDTO:
     def __repr__(self, obj=None): 
         """Unified class representation"""
@@ -10,11 +19,12 @@ class BaseDTO:
         attrsDict = self.__annotations__
         attrsList = list(attrsDict.keys())
         for i in range(len(attrsList)):
+            att = attrsList[i]
             try:
-                attType = attrsDict.get(attrsList[i])
-                setattr(self, attrsList[i], attType(args[i]))
+                attType = attrsDict.get(att)
+                setattr(self, att, attType(args[i]))
             except:
-                setattr(self, attrsList[i], None)
+                setattr(self, att, getattr(self, att, None))
 
         for key, val in kwargs.items():
             setattr(self, key, val)
@@ -223,6 +233,9 @@ class AttributeDTO(BaseDTO):
     def hintKey(self):
         return f"{self.type}: {self.value}"
 
+class SrcAttributeDTO(AttributeDTO):
+    pass
+
 class DateDTO(BaseDTO):
     quality: int
     modified: int
@@ -248,3 +261,138 @@ class SurnameDTO(BaseDTO):
     origin: str
     prefix: str
     parent: object
+
+class PersonDTO(BaseDTO):
+    gramps_id: str
+    privacy: bool
+    gender: str
+    primary_name: str
+
+class FamilyDTO(BaseDTO):
+    gramps_id: str
+    privacy: bool
+
+class EventDTO(BaseDTO):
+    gramps_id: str
+    privacy: bool
+    type: str
+    date_object: Date
+    description: str
+    place_handle: str
+
+class NameDTO(BaseDTO):
+    first_name: str
+    suffix: str
+    nick_name: str
+    call_name: str
+
+class NoteDTO(BaseDTO):
+    gramps_id: str
+    privacy: str
+    styledtext: StyledText
+
+class CitationDTO(BaseDTO):
+    gramps_id: str
+    page: str
+    confidence_level: int
+    date_object: Date
+
+class MediaDTO(BaseDTO):
+    gramps_id: str
+    path: str
+    privacy: bool
+    date_object: Date
+    description: str
+    mime_type: str
+
+class SourceDTO(BaseDTO):
+    gramps_id: str
+    title: bool
+    abbreviation: str
+    author: str
+    publication_info: str
+
+class RepositoryDTO(BaseDTO):
+    gramps_id: str
+    name: bool
+
+class PlaceDTO(BaseDTO):
+    gramps_id: str
+    name: PlaceName
+
+class AddressDTO(BaseDTO):
+    street: str
+    locality: str
+    city: str
+    state: str
+    postal_code: str
+    country: str
+
+class AttributeHandle(BaseDTO):
+    def __init__(self, name="Attribute", newVal="-", oldVal="-"):
+        self.name = name
+        self.newValue = newVal
+        self.oldValue = oldVal
+
+class ObjectHandle(BaseDTO):
+    def __init__(self, name="Primary Object", commited=False, attributes=list(), secondaryObjects=list(), objRef=None):
+        self.name = name
+        self.commited = commited
+        self.attributes = attributes
+        self.secondaryObjects = secondaryObjects
+        self.objRef = objRef
+
+class CompareDTO():
+    def getAttributes(self, obj) -> dict:
+        if not obj: return None
+
+        dtoName = type(obj).__name__ + "DTO"
+        dto = globals().get(dtoName, None)
+
+        if not dto: return None
+        
+        attDict = dict()
+        keys = list(dto.__annotations__.keys())
+        if "parent" in keys:
+            keys.remove("parent")
+
+        for key in keys:
+            val = self.getMethod(obj, key)
+            val = self.getObjectReprValue(val)
+            attDict[key] = str(val)
+
+        return attDict
+    
+    def getMethod(self, obj, name):
+        def mthd(s):
+            return BaseDTO.method(obj, s)
+
+        methodName = "get_" + name
+        method = mthd(methodName)
+        if not method:
+            method = mthd(self.nonTypicalMethod(name))
+
+        # print(f"\n\n--------\n{method}\n---------\n\n")
+        if method:
+            return method()
+        else:
+            return None
+
+    def nonTypicalMethod(self, name):
+        methods = {
+            'citation_referene': 'get_reference_handle'
+        }
+        return methods.get(name, name)
+    
+    def getObjectReprValue(self, obj):
+        cls = type(obj)
+        if cls == StyledText:
+            return obj.get_string()
+        elif cls == Date:
+            return obj.get_ymd()
+        elif cls == PlaceName:
+            return obj.get_value()
+        elif cls == Name:
+            return obj.get_first_name()
+        else:
+            return obj

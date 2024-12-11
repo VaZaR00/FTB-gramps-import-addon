@@ -31,6 +31,16 @@ MENU_LBL_TIP_COPYMEDIA = _("Copy media to user media folder path")
 MENU_LBL_PROGRESS_TITLE = _("Progress")
 MENU_LBL_PROGRESS_TEXT = _("Processing is ongoing. Please wait...")
 
+MENU_LBL_HDNLCHNG_TITLE = _("Handle changes")
+MENU_LBL_HDNLCHNG_TEXT = _("Handle gramps changes")
+MENU_LBL_HDNLCHNG_TABLE_NAME = _("Name")
+MENU_LBL_HDNLCHNG_TABLE_NEW = _("New value")
+MENU_LBL_HDNLCHNG_TABLE_OLD = _("Old value")
+MENU_LBL_HDNLCHNG_TABLE_COMMIT = _("Commit")
+MENU_LBL_HDNLCHNG_TABLE_COMMIT_ALL = _("Commit All")
+MENU_LBL_HDNLCHNG_TABLE_FOLD_ALL = _("Fold All")
+MENU_LBL_HDNLCHNG_TABLE_UNFOLD_ALL = _("Unfold All")
+
 MENU_LBL_FINISH_TITLE = _("Completion")
 MENU_LBL_FINISH_TEXT = _("The process is complete. You can now close the assistant.")
 
@@ -41,20 +51,20 @@ HINT_PROCCESING = _("Please wait...\n\nProgram might freeze for some time\n\nPro
 HINT_PROCCES_DONE_S = _("\nFTB to Gramps transfer done successfuly!")
 HINT_PROCCES_DONE_W = _("\nFTB to Gramps transfer done with some problems. Please read logs for more information.")
 HINT_PROCCES_CONNTODB = _("Succesfully connected to db: '{}'")
-HINT_PROCCES_ERROR = _("Something went wrong: {}")
+HINT_PROCCES_ERROR = _("\nSomething went wrong: {} \n")
 
-HINT_HANDLEOBJ_ERROR = _("\nERROR! Something went wrong while proccesing {} object ({}). \nDTO: {} \nError: {}")
+HINT_HANDLEOBJ_ERROR = _("\nERROR! Something went wrong while proccesing {} object ({}). \nDTO: {} \nError: {} \n")
 HINT_HANDLEOBJ_COMMIT = _("Object '{}' ({}) commited. Time: {}")
 HINT_HANDLEOBJ_EXIST = _("Object '{}' founded in Gramps by key '{}': {}")
 HINT_HANDLEOBJ_DONTEXISTS = _("Object '{}' not found in Gramps by key '{}'. New created.")
 
 HINT_GETMEDIA_FLDRNTFND = _("Media folder not found in {}.")
 HINT_GETMEDIA_FILEIDNTFND = _("File with ID={} not found.")
-HINT_GETMEDIA_ERROR = _("Error while working with file {}: {}")
+HINT_GETMEDIA_ERROR = _("\nERROR! while working with file {}: {} \n")
 HINT_COPYMEDIA_NEW_FOLDER = _("User media folder ({}) does not exists so new folder created")
-HINT_COPYMEDIA_ERROR = _("Error while trying to copy media: {}")
+HINT_COPYMEDIA_ERROR = _("\nERROR! while trying to copy media: {} \n")
 
-HINT_FINDBYID_ERROR = _("Error while trying to find {} by {}: {}")
+HINT_FINDBYID_ERROR = _("\nERROR! while trying to find {} by {}: {}\n")
 
 # Attributes and facts names
 UID = "_UID"
