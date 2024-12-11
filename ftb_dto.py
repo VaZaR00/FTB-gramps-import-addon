@@ -233,8 +233,10 @@ class AttributeDTO(BaseDTO):
     def hintKey(self):
         return f"{self.type}: {self.value}"
 
-class SrcAttributeDTO(AttributeDTO):
-    pass
+class SrcAttributeDTO(BaseDTO):
+    privacy: int
+    type: str
+    value: str
 
 class DateDTO(BaseDTO):
     quality: int
@@ -329,18 +331,33 @@ class AddressDTO(BaseDTO):
     country: str
 
 class AttributeHandle(BaseDTO):
-    def __init__(self, name="Attribute", newVal="-", oldVal="-"):
-        self.name = name
-        self.newValue = newVal
-        self.oldValue = oldVal
+    name: str = "Attribute"
+    newValue: str = "-"
+    oldValue: str = "-"
+
+    # def __init__(self, name="Attribute", newVal="-", oldVal="-"):
+    #     self.name = name
+    #     self.newValue = newVal
+    #     self.oldValue = oldVal
 
 class ObjectHandle(BaseDTO):
-    def __init__(self, name="Primary Object", commited=False, attributes=list(), secondaryObjects=list(), objRef=None):
+    # name: str = "Primary Object"
+    # commited: bool = False
+    # attributes: list = list()
+    # secondaryObjects: list = list()
+    # objRef: object = None
+    # sortval: int = 0
+    
+    def __init__(self, name="Primary Object", commited=False, attributes=list(), secondaryObjects=list(), objRef=None, sortval=20):
         self.name = name
         self.commited = commited
         self.attributes = attributes
         self.secondaryObjects = secondaryObjects
         self.objRef = objRef
+        self.sortval = sortval
+
+    # def __repr__(self, obj=None):
+    #     return f'{self.objRef}'
 
 class CompareDTO():
     def getAttributes(self, obj) -> dict:

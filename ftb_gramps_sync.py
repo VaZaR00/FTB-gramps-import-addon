@@ -38,9 +38,7 @@ from gramps.gen.lib.refbase import RefBase
 
 """
 TODO:
-1. Changes tab
-2. Copy photos --DONE--
-3. Translation
+1. Translation
 """
 
 #region Helpers
@@ -70,6 +68,16 @@ def clsName(obj) -> str:
 def clearNones(arr):
     return [el for el in arr if el is not None]
 
+def createCleanList(arr, func, *funcargs):
+    """Create list from array without duplicates and Nones"""
+    res = []
+    for obj in arr:
+        new = func(obj, *funcargs)
+        if new and not (new in res):
+            res.append(new)
+    
+    return res
+
 def toArr(s):
     if not isinstance(s, (list, tuple)):
         return [s]
@@ -84,7 +92,7 @@ def getFromListByKey(arr, key, default=-1, returnIndex=0, findIndex=0, returnAll
 
     return default
 
-def getReferencedObjects(obj, func=lambda a: a):
+def getReferencedObjectsCommited(obj, func=lambda a: a):
     genTypes = ("note", "citation", "attribute", "media", "address", "url", "event_ref", "surname", "reporef")
     methodNames = ["get_alternate_names", "get_reference_handle"]
     resList = []
@@ -109,6 +117,15 @@ def getReferencedObjects(obj, func=lambda a: a):
 
     return resList
 
+def classSortVal(clsname):
+    values = {
+        "person": 0,
+        "family": 1,
+        "event": 2,
+        "media": 3
+    }
+    return values.get(clsname, ord(clsname[0]))
+
 class TransferSettings(BaseDTO):
     def __init__(self, *args):
         self.tryConnect = args[0]
@@ -116,7 +133,7 @@ class TransferSettings(BaseDTO):
         self.doCopyMedia = args[2]
 
 class ToConnectReferenceObjects(BaseDTO):
-    obj: object = None
+    # obj: object = None
     notes: list = []
     attributes: list = []
     medias: list = []
@@ -124,14 +141,19 @@ class ToConnectReferenceObjects(BaseDTO):
     citations: list = []
     urls: list = []
     addresses: list = []
+    names: list = []
     surnames: list = []
     repositories: list = []
     source: object = None
+    primaryName: object = None
+    place: object = None
 
 #endregion
 
 
 DEV_TEST_BD_PATH = 'C:/Users/Sasha/Documents/MyHeritage/1st_1'
+
+CHANGES_COMMIT_MAIN_CLASSES = (Person, Family, Repository, Media, Source, Place)
 
 #------------------------------------------------------------------------
 #
@@ -410,11 +432,17 @@ class HandleChanges(Page):
         commit_all_button = Gtk.Button(label=MENU_LBL_HDNLCHNG_TABLE_COMMIT_ALL)
         commit_all_button.set_halign(Gtk.Align.END)
         commit_all_button.set_valign(Gtk.Align.START)
-        commit_all_button.connect("clicked", self.commit_all)
+        commit_all_button.connect("clicked", partial(self.commit_all, True))
+        
+        uncommit_all_button = Gtk.Button(label=MENU_LBL_HDNLCHNG_TABLE_UNCOMMIT_ALL)
+        uncommit_all_button.set_halign(Gtk.Align.END)
+        uncommit_all_button.set_valign(Gtk.Align.START)
+        uncommit_all_button.connect("clicked", partial(self.commit_all, False))
 
         box.pack_start(fold_all_btn, False, False, 0)
         box.pack_start(unfold_all_btn, False, False, 0)
         box.pack_start(commit_all_button, False, False, 0)
+        box.pack_start(uncommit_all_button, False, False, 0)
         self.pack_start(box, False, False, 0)
 
     def foldAll(self, widget):
@@ -460,11 +488,13 @@ class HandleChanges(Page):
         obj.commited = chk
         self.checkLinkedChkboxes(obj, chk)
         for sobj in obj.secondaryObjects:
-            self.checkLinkedChkboxes(sobj, chk)
+            if not isinstance(sobj.objRef, CHANGES_COMMIT_MAIN_CLASSES):
+                self.checkLinkedChkboxes(sobj, chk)
 
-    def commit_all(self, widget):
-        for obj, chk in self.commitChkboxes:
-            chk.set_active(True)
+    def commit_all(self, state, widget):
+        for obj, *chks in self.commitChkboxes:
+            for chk in chks:
+                chk.set_active(state)
 
     def linkCheckboxes(self, obj, chkbox):
         exist = getFromListByKey(self.commitChkboxes, obj, None, returnAll=True)
@@ -512,6 +542,7 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         self.logs = []  
         self.compares = []
         self.familyToConnect = []
+        self.referencesToConnect: list[ToConnectReferenceObjects] = []
         self.processing_complete = False
         self.succesfuly = True
         self._doCopyMedia = False
@@ -564,19 +595,25 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
 
     def prepare(self, assistant, page: Page):
         """Run page preparation code."""
+
         page.update_complete()
         if page == self.progress_page:
             if self.connectedToFTBdb:
                 t = threading.Thread(target=self.proccesAsync)
                 t.start()
             else:
-                self.assistant.previous_page()
+                if self.processing_complete:
+                    self.assistant.next_page()
+                else:
+                    self.assistant.previous_page()
         elif page == self.file_sel_page:
-            pass
+            if self.processing_complete:
+                self.assistant.set_current_page(3)
         elif page == self.handle_change_page:
-            self.objectsList: list[ObjectHandle] = self.createCompareObjectsList()
-            page.display_changes(self.objectsList)
-            page.set_complete()
+            if not page.complete:
+                self.objectsList: list[ObjectHandle] = self.createCompareObjectsList()
+                page.display_changes(self.objectsList)
+                page.set_complete()
         else:
             page.set_complete()
 
@@ -607,15 +644,15 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         if page == self.handle_change_page:
             try:
                 self.createCommitList()
-                print(self.toCommit)
                 self.commitChanges()
-            except:
-                self.log("ERROR WHILE APPLYING")
+            except Exception as e:
+                self.log(f"ERROR WHILE APPLYING: {e}")
+                # raise e
 
-    def forward_page(self, page, data):
+    def forward_page(self, pageN, data):
         """Specify the next page to be displayed."""
 
-        return page + 1
+        return pageN + 1
 
     def log(self, s):
         buffer = self.progress_page.log_text_view.get_buffer()
@@ -684,6 +721,7 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         else:
             self.log(HINT_PROCCES_DONE_W)
         self.processing_complete = True
+        self.connectedToFTBdb = False
 
     def tryConnectSQLdb(self, path):
         try:
@@ -870,12 +908,13 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         # print(f"--COMPARE\n{self.compares}\n--\n")
 
         for new, old in self.compares:
-            if isinstance(new, (Person, Family, Repository)):
+            if isinstance(new, CHANGES_COMMIT_MAIN_CLASSES):
                 obj = self.createObjectHandle(new, old)
                 if obj:
                     objects.append(obj)
 
         # print(objects)
+        objects.sort(key=lambda x: x.sortval)
         return objects
     
     def createObjectHandle(self, new, old):
@@ -889,14 +928,19 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         if not attrsOld: attrsOld = dict()
 
         attHandlesList = [AttributeHandle(key, val, attrsOld.get(key, None)) for key, val in attrsNew.items()]
-        secondaryObjs = clearNones([self.createObjectHandle(obj, self.getFromCompareList(obj, None)) for obj in self.getSecondaryObjects(new)])
+        func = lambda obj, self: self.createObjectHandle(obj, self.getFromCompareList(obj, None))
+        secondaryObjs = createCleanList(self.getSecondaryObjects(new), func, self)
+        secondaryObjs.sort(key=lambda x: x.sortval)
+
+        # print(f"OBJECT_TYPE: {type(new)}\nSECOND: {self.getSecondaryObjects(new)}\nSECOND_made: {secondaryObjs}\n")
 
         res = ObjectHandle(
             clsName(new).title(),
             True,
             attHandlesList,
             secondaryObjs,
-            new
+            new,
+            classSortVal(clsName(new))
         )
         self.allObjectHandles.append(res)
         return res
@@ -908,14 +952,14 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         return None
 
     def getSecondaryObjects(self, obj) -> list:
-        def do(ref):
-            if isinstance(ref, RefBase):
-                return self.getTempObj(ref.get_reference_handle())
-            elif isinstance(ref, str):
-                return self.getTempObj(ref)
-            return ref
+        # def do(ref):
+        #     if isinstance(ref, RefBase):
+        #         return self.getTempObj(ref.get_reference_handle())
+        #     elif isinstance(ref, str):
+        #         return self.getTempObj(ref)
+        #     return ref
 
-        return getReferencedObjects(obj, do)
+        return self.getReferencedObjects(obj)
 
     def addCompare(self, c):
         new, old = c
@@ -935,17 +979,99 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
                         self.toCommit.append(sobj.objRef)
                 self.toCommit.append(obj.objRef)
 
-    # def clearEmptyRefs(self, obj):
-    #     def do(ref):
-    #         if isinstance(ref, RefBase):
-    #             pass
-    #         elif isinstance(ref, RefBase):
-    #             pass
+    def addConnectReferences(self, obj, *args, **kwargs):
+        self.temp_i = 0
+        def getv(name, default=[]):
+            val = default
+            try:
+                val = kwargs.get(name, default)
+                if not val:
+                    val = args[self.temp_i]
+            except: pass
+            self.temp_i += 1
+            return val
 
-    #     getReferencedObjects(obj, do)
+        self.referencesToConnect.append(
+            (
+                obj,
+                ToConnectReferenceObjects(
+                    notes=getv('notes'),
+                    attributes=getv('attributes'),
+                    medias=getv('medias'),
+                    events=getv('events'),
+                    citations=getv('citations'),
+                    urls=getv('urls'),
+                    addresses=getv('addresses'),
+                    names=getv('names'),
+                    surnames=getv('surnames'),
+                    repositories=getv('repositories'),
+                    source=getv('source', None),
+                    primaryName=getv('primaryName', None),
+                    place=getv('place', None)
+                )
+            )
+        )
+    
+    def clearConRefFromNonCommit(self, cref):
+        def check(o, att, isList=True):
+            if o in self.toCommit:
+                if isList:
+                    getattr(cref, att, []).remove(o)
+                else:
+                    setattr(cref, att, None)
+
+        for att, val in cref.__dict__.items():
+            if isinstance(val, list):
+                for el in val:
+                    check(el, att)
+            else:
+                check(val, att, False)
 
     def connectRefs(self, obj):
-        pass
+        conRef = getFromListByKey(self.referencesToConnect, obj, None, 1)
+        
+        if not conRef: return
+
+        # self.clearConRefFromNonCommit(conRef)
+
+        for name in conRef.names:
+            obj.add_alternate_name(name)
+        for attribute in conRef.attributes:
+            obj.add_attribute(attribute)
+        for event in conRef.events:
+            if event in self.toCommit:
+                obj.add_event_ref(self.addObjRef(EventRef, event))
+        for citation in conRef.citations:
+            if citation in self.toCommit:
+                obj.add_citation(citation.get_handle())
+        for media in conRef.medias:
+            if media in self.toCommit:
+                obj.add_media_reference(self.addObjRef(MediaRef, media))
+        for note in conRef.notes:
+            if note in self.toCommit:
+                obj.add_note(note.get_handle())
+        for url in conRef.urls:
+            obj.add_url(url)
+        for address in conRef.addresses:
+            obj.add_address(address)
+        for surname in conRef.surnames:
+            if not isEmptyOrWhitespace(surname.get_surname()):
+                obj.add_surname(surname)
+        for repo in conRef.repositories:
+            if repo in self.toCommit:
+                newRepoRef = self.addObjRef(RepoRef, repo)
+                repoRefs = obj.get_reporef_list()
+                if not any(rr.ref == newRepoRef.ref for rr in repoRefs):
+                    obj.add_repo_reference(newRepoRef)
+        if conRef.source:
+            if conRef.source in self.toCommit:
+                obj.set_reference_handle(conRef.source.get_handle())
+        if conRef.primaryName:
+            obj.set_primary_name(conRef.primaryName)
+        if conRef.place:
+            if conRef.place in self.toCommit:
+                if conRef.place.get_name(): 
+                    obj.set_place_handle(conRef.place.get_handle())
 
     def commitChanges(self):
         for obj in self.toCommit:
@@ -962,6 +1088,26 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
 
     def doReplace(self, type):
         return self.dataReplace.get(type, False)
+    
+    def getReferencedObjects(self, obj, func=lambda a: a):
+        conRef = getFromListByKey(self.referencesToConnect, obj, None, 1)
+        
+        if not conRef: return []
+
+        resList = []
+
+        for att in conRef.__dict__.values():
+            try:
+                if not att: continue
+                if isinstance(att, list):
+                    for el in att:
+                        resList.append(func(el))
+                else:
+                    resList.append(func(att))
+            except Exception as e:
+                pass
+
+        return resList
     #endregion
 
     #region Find objects in gramps
@@ -1165,22 +1311,8 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         person.set_privacy(privacy)
         person.set_gender(gender)
         person.set_primary_name(primary_name)
-        for name in newNames:
-            person.add_alternate_name(name)
-        for attribute in newAttributes:
-            person.add_attribute(attribute)
-        for event in newEvents:
-            person.add_event_ref(self.addObjRef(EventRef, event))
-        for citation in newCitations:
-            person.add_citation(citation.get_handle())
-        for media in newMedia:
-            person.add_media_reference(self.addObjRef(MediaRef, media))
-        for note in newNotes:
-            person.add_note(note.get_handle())
-        for url in newUrls:
-            person.add_url(url)
-        for address in newAddresses:
-            person.add_address(address)
+        
+        self.addConnectReferences(person, newNotes, newAttributes, newMedia, newEvents, newCitations, newUrls, newAddresses, newNames, primaryName=primary_name)
 
         return person
 
@@ -1211,18 +1343,8 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
 
         self.trySetGrampsId(family, mainData.family_id, FAMILY_ID_PFX, True)
         family.set_privacy(privacy)
-        for attribute in newAttributes:
-            family.add_attribute(attribute)
-        for event in newEvents:
-            family.add_event_ref(self.addObjRef(EventRef, event))
-        for citation in newCitations:
-            family.add_citation(citation.get_handle())
-        for media in newMedia:
-            family.add_media_reference(self.addObjRef(MediaRef, media))
-        for note in newNotes:
-            family.add_note(note.get_handle())
-
-        # self.setFamilyMembers(family, mainData.family_id)
+        
+        self.addConnectReferences(family, newNotes, newAttributes, newMedia, newEvents, newCitations)
         self.addFamilyConn(family, mainData.family_id)
         
         return family
@@ -1260,11 +1382,7 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
             description = description + f" {CAUSE_DEAT}: " + causeOfDeat
         
         place = self.handleObject(self.findPlace, mainData.place_id, True, False)
-        if place:
-            if place.get_name(): 
-                place = place.get_handle() 
-        else: place = ""
-
+        
         media = self.formatFetchData(media_item_to_item_connection_DTO, mainData.token_on_item_id, self.findMedia)
         newNotes = self.getNotes(mainData.token_on_item_id)
         newAttributes = self.createObjectsList(
@@ -1278,16 +1396,9 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         event.set_type(eventType)
         event.set_date_object(date)
         event.set_description(description)
-        event.set_place_handle(place)
-        for attribute in newAttributes:
-            event.add_attribute(attribute)
-        for citation in newCitations:
-            event.add_citation(citation.get_handle())
-        for media in newMedia:
-            event.add_media_reference(self.addObjRef(MediaRef, media))
-        for note in newNotes:
-            event.add_note(note.get_handle())
 
+        self.addConnectReferences(event, newNotes, newAttributes, newMedia, citations=newCitations, place=place)
+        
         return event
 
     def modifyName(self, name: Name, data: individual_lang_data_DTO):
@@ -1310,9 +1421,8 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         name.set_suffix(data.suffix)
         name.set_nick_name(data.nickname)
         name.set_call_name(data.aka)
-        for surname in surnames:
-            if not isEmptyOrWhitespace(surname.get_surname()):
-                name.add_surname(surname)
+
+        self.addConnectReferences(name, surnames=surnames)
 
     def modifySurname(self, surnameObj: Surname, data: SurnameDTO):
         if not data: return None
@@ -1367,14 +1477,12 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         media.set_privacy(prvt)
         media.set_date_object(self.extract_date(mainData))
         media.set_description(langData.title)
-        for attribute in attributes:
-            media.add_attribute(attribute)
-        for note in notes:
-            media.add_note(note.get_handle())
         # deal with mime types
         value = mimetypes.guess_type(media.get_path())
         if value and value[0]:  # found from filename
             media.set_mime_type(value[0])
+
+        self.addConnectReferences(media, notes, attributes)
 
         return media
 
@@ -1396,14 +1504,10 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         citation.set_page(mainData.page)
         citation.set_confidence_level(mainData.confidence)
         citation.set_date_object(self.extract_date(mainData))
-        for attribute in attributes:
-            citation.add_attribute(attribute)
-        for note in notes:
-            citation.add_note(note.get_handle())
 
         source = self.handleObject(self.findSource, mainData.source_id, True, False)
-        if source:
-            citation.set_reference_handle(source.get_handle())
+
+        self.addConnectReferences(citation, notes, attributes, source=source)
 
         return citation
     
@@ -1431,19 +1535,10 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         source.set_abbreviation(langData.abbreviation)
         source.set_author(langData.author)
         source.set_publication_info(langData.publisher)
-        for attribute in attributes:
-            source.add_attribute(attribute)
-        for note in notes:
-            source.add_note(note.get_handle())
-        for media in medias:
-            source.add_media_reference(self.addObjRef(MediaRef, media))
 
-        repo: Repository = self.handleObject(self.findRepository, mainData.repository_id, True, False)
-        if repo:
-            newRepoRef = self.addObjRef(RepoRef, repo)
-            repoRefs = source.get_reporef_list()
-            if not any(rr.ref == newRepoRef.ref for rr in repoRefs):
-                source.add_repo_reference(newRepoRef)
+        repo = self.handleObject(self.findRepository, mainData.repository_id, True, False)
+        
+        self.addConnectReferences(source, notes, attributes, medias, repositories=[repo])
 
         return source
 
@@ -1476,6 +1571,8 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
             repo.add_url(url)
         for address in newAddresses:
             repo.add_address(address)
+
+        self.addConnectReferences(repo, notes, urls=urls, addresses=newAddresses)
 
         return repo
     
