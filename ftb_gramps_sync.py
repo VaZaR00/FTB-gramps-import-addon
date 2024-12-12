@@ -130,12 +130,6 @@ def classSortVal(clsname):
     }
     return values.get(clsname, ord(clsname[0]))
 
-class TransferSettings(BaseDTO):
-    def __init__(self, *args):
-        self.tryConnect = args[0]
-        self.dataReplace = args[1]
-        self.doCopyMedia = args[2]
-
 class ToConnectReferenceObjects(BaseDTO):
     # obj: object = None
     notes: list = []
@@ -196,12 +190,12 @@ class IntroductionPage(Page):
         self._complete = True
 
 class FileSelectorPage(Page):
-    def __init__(self, assistant, cfg: TransferSettings):
+    def __init__(self, assistant, cfg):
         super().__init__(assistant)
         
-        self.tryConnect = cfg.tryConnect
+        self.cfg = cfg
+        self.tryConnect = cfg.tryConnectSQLdb
         self.dataReplace = cfg.dataReplace
-        self.doCopyMedia = cfg.doCopyMedia
         self.checkboxes = []
 
         main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
@@ -230,12 +224,21 @@ class FileSelectorPage(Page):
         self.folder_error = Gtk.Label(label="")
         main_box.pack_start(self.folder_error, False, False, 5)
 
+        # copy media
         self.doCopyChk = Gtk.CheckButton(label=MENU_LBL_CHK_COPYMEDIA)
         self.doCopyChk.set_tooltip_text(MENU_LBL_TIP_COPYMEDIA)
-        self.doCopyChk.connect("toggled", self.onCopyMediaToggle)
-        self.doCopyChk.set_active(self.doCopyMedia())
+        self.doCopyChk.connect("toggled", partial(self.onChkToggle, cfg.setCopyMedia))
+        self.doCopyChk.set_active(cfg._doCopyMedia)
         main_box.pack_start(self.doCopyChk, False, False, 5)
 
+        # do handling
+        self.doHndlChk = Gtk.CheckButton(label=MENU_LBL_CHK_DOHANDLE)
+        self.doHndlChk.set_tooltip_text(MENU_LBL_TIP_DOHANDLE)
+        self.doHndlChk.connect("toggled", partial(self.onChkToggle, cfg.setHandling))
+        self.doHndlChk.set_active(cfg._doHandling)
+        main_box.pack_start(self.doHndlChk, False, False, 5)
+
+        # object options
         for option in cfg.dataReplace:
             checkbox = Gtk.CheckButton(label=MENU_LBL_CHK_REPLACE.format(option.__name__))
             checkbox.set_tooltip_text(MENU_LBL_TIP_REPLACE.format(option.__name__))
@@ -260,9 +263,9 @@ class FileSelectorPage(Page):
 
         self.show_all()
 
-    def onCopyMediaToggle(self, widget):
-        state = widget.get_active()  
-        self.doCopyMedia(state)
+    def onChkToggle(self, var, widget):
+        state = widget.get_active()
+        var(state)
 
     def on_checkbox_toggled(self, key, widget):
         state = widget.get_active()  
@@ -541,14 +544,15 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         self.dbHandler = None # Access to FTB SQL db
         self.connectedToFTBdb = False
         self.path = DEV_TEST_BD_PATH # File path chosen by user
-        self.toCommit = [] 
         self.logs = []  
+        self.toCommit = [] 
         self.compares = []
-        self.familyToConnect = []
         self.referencesToConnect: list[ToConnectReferenceObjects] = []
+        self.familyToConnect = []
         self.processing_complete = False
         self.succesfuly = True
         self._doCopyMedia = False
+        self._doHandling = True
 
         if DEV_TEST_BD_PATH:
             self.tryConnectSQLdb(self.path)
@@ -557,10 +561,11 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         self.createGUI()
 
     #region Properties
-    def doCopyMedia(self, val: bool = None):
-        if val and isinstance(val, bool):
-            self._doCopyMedia = val
-        else: return self._doCopyMedia
+    def setHandling(self, val):
+        self._doHandling = val
+
+    def setCopyMedia(self, val):
+        self._doCopyMedia = val
     #endregion
 
     #------------------------------------------------------------------------
@@ -581,7 +586,7 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         self.intro_page = IntroductionPage(self.assistant)
         self.add_page(self.intro_page, Gtk.AssistantPageType.INTRO, MENU_LBL_INTRO_TITLE)
 
-        self.file_sel_page = FileSelectorPage(self.assistant, self.guiSettings)
+        self.file_sel_page = FileSelectorPage(self.assistant, self)
         self.add_page(self.file_sel_page, Gtk.AssistantPageType.CONTENT, MENU_LBL_PATH_TITLE)
 
         self.progress_page = ProgressPage(self.assistant)
@@ -613,10 +618,16 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
             if self.processing_complete:
                 self.assistant.set_current_page(3)
         elif page == self.handle_change_page:
-            if not page.complete:
-                self.objectsList: list[ObjectHandle] = self.createCompareObjectsList()
-                page.display_changes(self.objectsList)
+            if not self._doHandling: 
                 page.set_complete()
+                self.apply(self.assistant)
+                self.assistant.next_page()
+            
+            if page.complete: return
+
+            self.objectsList: list[ObjectHandle] = self.createCompareObjectsList()
+            page.display_changes(self.objectsList)
+            page.set_complete()
         else:
             page.set_complete()
 
@@ -691,7 +702,6 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
             Address: True,
             Place: True,
         }
-        self.guiSettings = TransferSettings(self.tryConnectSQLdb, self.dataReplace, self.doCopyMedia)
         self.userMediaFolder = self.db.get_mediapath()
         self.getPrefixesFromConfig()
 
@@ -975,12 +985,16 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         return getFromListByKey(self.compares, key, default)
 
     def createCommitList(self):
-        for obj in self.objectsList:
-            if obj.commited:
-                for sobj in obj.secondaryObjects:
-                    if sobj.commited:
-                        self.toCommit.append(sobj.objRef)
-                self.toCommit.append(obj.objRef)
+        if self._doHandling:
+            for obj in self.objectsList:
+                if obj.commited:
+                    for sobj in obj.secondaryObjects:
+                        if sobj.commited:
+                            self.toCommit.append(sobj.objRef)
+                    self.toCommit.append(obj.objRef)
+        else:
+            for new, old in self.compares:
+                self.toCommit.append(new)
 
     def addConnectReferences(self, obj, *args, **kwargs):
         self.temp_i = 0
@@ -2028,7 +2042,7 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         
         # try copy media else return its initial path
         resultFile = None
-        if self.doCopyMedia():
+        if self._doCopyMedia:
             resultFile = self.copyMedia(highest_resolution_file)
         if not resultFile:
             resultFile = highest_resolution_file
