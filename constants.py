@@ -21,6 +21,7 @@ https://github.com/VaZaR00/FTB-gramps-import-addon
 """)
 
 MENU_LBL_PATH_TITLE = _("FTB Project path")
+MENU_LBL_LOADING = _("Loading...")
 MENU_LBL_PATH_TEXT = _("Please select the FTB project path.")
 MENU_LBL_PATH_SELECTED = _("Path selected: {}")
 MENU_LBL_CHOOSE_FILE = _("Choose folder")

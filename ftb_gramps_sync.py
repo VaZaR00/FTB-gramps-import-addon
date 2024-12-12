@@ -5,8 +5,6 @@
 #------------------------------------------------------------------------
 from functools import partial
 import mimetypes
-import threading
-import time
 import copy
 from typing import Optional
 from constants import *
@@ -337,7 +335,6 @@ class HandleChanges(Page):
 
         self.create_buttons()
         self.create_header_row()
-
         self.data_area = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1)
 
         scrolled_window = Gtk.ScrolledWindow()
@@ -345,6 +342,10 @@ class HandleChanges(Page):
         scrolled_window.set_min_content_height(200)
         scrolled_window.set_max_content_height(400)
         scrolled_window.add(self.data_area)
+
+        self.loading_lbl = Gtk.Label(label=MENU_LBL_LOADING)
+        self.loading_lbl.set_xalign(0)
+        self.data_area.pack_start(self.loading_lbl, False, False, 0)
 
         self.pack_start(self.data_area, True, True, 0)
         self.pack_start(scrolled_window, True, True, 0)
@@ -484,6 +485,7 @@ class HandleChanges(Page):
 
     def display_changes(self, objects: list[ObjectHandle]):
         """Display all objects and their changes."""
+        self.loading_lbl.destroy()
         for obj in objects:
             obj_block = self.create_object_block(obj)
             self.data_area.pack_start(obj_block, False, False, 0)
@@ -607,8 +609,9 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         page.update_complete()
         if page == self.progress_page:
             if self.connectedToFTBdb:
-                t = threading.Thread(target=self.proccesAsync)
-                t.start()
+                self.log(HINT_PROCCESING)
+                GLib.idle_add(self.start_processing)
+                self.progress_page.set_complete()
             else:
                 if self.processing_complete:
                     self.assistant.next_page()
@@ -625,17 +628,17 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
             
             if page.complete: return
 
-            self.objectsList: list[ObjectHandle] = self.createCompareObjectsList()
-            page.display_changes(self.objectsList)
+            # t = threading.Thread(target=self.prepareHandleChangesAsync)
+            # t.start()
+            GLib.idle_add(self.prepareHandleChangesAsync)
+            
             page.set_complete()
         else:
             page.set_complete()
 
-    def proccesAsync(self):
-        self.log(HINT_PROCCESING)
-        time.sleep(1) # temporary, to let next page load
-        GLib.idle_add(self.start_processing)
-        self.progress_page.set_complete()
+    def prepareHandleChangesAsync(self):
+        self.objectsList = self.createCompareObjectsList()
+        self.handle_change_page.display_changes(self.objectsList)
 
     def add_page(self, page, page_type, title=""):
         """Add a page to the assistant."""
