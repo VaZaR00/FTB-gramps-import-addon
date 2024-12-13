@@ -58,9 +58,8 @@ def formatMHid(id, pfx) -> str:
 
 def forLog(data):
     try:
-        if isinstance(data, tuple):
-            return data[0].hintKey()
-        else: return data.hintKey()
+        data = toTuple(data)
+        return data[0].hintKey()
     except:
         return "null"
 
@@ -128,6 +127,12 @@ def classSortVal(clsname):
     }
     return values.get(clsname, ord(clsname[0]))
 
+def toTuple(v):
+    if isinstance(v, tuple):
+        return v
+    else: 
+        return (v, )
+
 class ToConnectReferenceObjects(BaseDTO):
     # obj: object = None
     notes: list = []
@@ -144,6 +149,10 @@ class ToConnectReferenceObjects(BaseDTO):
     primaryName: object = None
     place: object = None
 
+class ObjectSettings(BaseDTO):
+    makeReplaceOption: bool = True
+    doReplace: bool = True
+    doFilter: bool = False
 #endregion
 
 #------------------------------------------------------------------------
@@ -193,7 +202,7 @@ class FileSelectorPage(Page):
         
         self.cfg = cfg
         self.tryConnect = cfg.tryConnectSQLdb
-        self.dataReplace = cfg.dataReplace
+        self.objectSettings: dict = cfg.objectSettings
         self.checkboxes = []
 
         main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
@@ -236,12 +245,13 @@ class FileSelectorPage(Page):
         self.doHndlChk.set_active(cfg._doHandling)
         main_box.pack_start(self.doHndlChk, False, False, 5)
 
-        # object options
-        for option in cfg.dataReplace:
-            checkbox = Gtk.CheckButton(label=MENU_LBL_CHK_REPLACE.format(option.__name__))
-            checkbox.set_tooltip_text(MENU_LBL_TIP_REPLACE.format(option.__name__))
+        # object options filterByUPD
+        for key, option in self.objectSettings.items():
+            if not option.makeReplaceOption: continue
+            checkbox = Gtk.CheckButton(label=MENU_LBL_CHK_REPLACE.format(key.__name__))
+            checkbox.set_tooltip_text(MENU_LBL_TIP_REPLACE.format(key.__name__))
             checkbox.connect("toggled", partial(self.on_checkbox_toggled, option))
-            checkbox.set_active(cfg.dataReplace[option])
+            checkbox.set_active(option.doReplace)
             main_box.pack_start(checkbox, False, False, 5)
             self.checkboxes.append(checkbox)
 
@@ -265,9 +275,9 @@ class FileSelectorPage(Page):
         state = widget.get_active()
         var(state)
 
-    def on_checkbox_toggled(self, key, widget):
+    def on_checkbox_toggled(self, sett: ObjectSettings, widget):
         state = widget.get_active()  
-        self.dataReplace.update({key: state})
+        sett.doReplace = state
 
     def on_file_selected(self, widget):
         """File selector handler."""
@@ -688,23 +698,26 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
 
     #region main
     def getConfigs(self):
-        self.dataReplace = {
+        self.objectSettings = {
             # if set to False it will always create new object (might duplicate)
             # else it will try to find if it exists already
-            Event: True,
-            Name: True,
-            Surname: True,
-            Attribute: True,
-            Note: True,
-            Citation: True,
-            Media: True,
-            Source: True,
-            Repository: True,
-            Date: True,
-            Url: True,
-            Address: True,
-            Place: True,
+            Person: ObjectSettings(False),
+            Event: ObjectSettings(),
+            Name: ObjectSettings(),
+            Surname: ObjectSettings(),
+            Attribute: ObjectSettings(),
+            Note: ObjectSettings(),
+            Citation: ObjectSettings(),
+            Media: ObjectSettings(),
+            Source: ObjectSettings(),
+            Repository: ObjectSettings(),
+            Date: ObjectSettings(),
+            Url: ObjectSettings(),
+            Address: ObjectSettings(),
+            Place: ObjectSettings(),
         }
+        self.objectSettings[Person].filterByUPDstr = f"last_update = ?, {individual_main_data_DTO.key} = ?"
+
         self.userMediaFolder = self.db.get_mediapath()
         self.getPrefixesFromConfig()
 
@@ -1107,7 +1120,11 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         self.dbState.signal_change()
 
     def doReplace(self, type):
-        return self.dataReplace.get(type, False)
+        setting: ObjectSettings = self.objectSettings.get(type, None)
+        if setting:
+            return setting.doReplace
+        else:
+            return False
     
     def getReferencedObjects(self, obj, func=lambda a: a):
         conRef = getFromListByKey(self.referencesToConnect, obj, None, 1)
@@ -1128,12 +1145,27 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
                 pass
 
         return resList
+    
+    def getFilter(self, cls, mainKey, filterType=None) -> tuple[tuple, str]:
+        mainKey = toTuple(mainKey)
+        filterType = "filterByUPD"
+        try:
+            sett = self.objectSettings[cls]
+            if sett.doFilter:
+                filtStr = getattr(sett, filterType + "str", "")
+                keys = getattr(sett, filterType + "keys", ("", ))
+                return ((*mainKey, *keys), filtStr)
+            else: return (mainKey, "")
+        except Exception as e:
+            self.log(f"ERROR while getting filter {e}")
+            return (mainKey, "")
     #endregion
 
     #region Find objects in gramps
     def findPerson(self, id):
         if not id: return None, self.modifyPerson, Person, None
-        mainData, dataSets = self.fetchData((id, individual_main_data_DTO), (id, individual_data_set_DTO, False))
+        key, filterStr = self.getFilter(Person, id)
+        mainData, dataSets = self.fetchData((key, individual_main_data_DTO, True, None, filterStr), (id, individual_data_set_DTO, False))
         person = self.findByIdsAttributes(mainData.guid, "person")
         langData = [self.fetchData(((dataSet.individual_data_set_id, ), individual_lang_data_DTO)) for dataSet in dataSets]
         langData = [el for el in langData if el is not None]
@@ -2232,12 +2264,11 @@ class FTBDatabaseHandler:
                         return os.path.join(dirpath, filename)
         return None
 
-    def fetchDbDataDto(self, key, dtoClass, oneRow=True, query=None):
+    def fetchDbDataDto(self, key, dtoClass, oneRow=True, query=None, keysStr=None):
         if query is None:
-            query = dtoClass.query()
+            query = dtoClass.query(keysStr)
             
-        if not isinstance(key, tuple):
-            key = (key, )
+        key = toTuple(key)
 
         try:
             self.cursor.execute(query, key)
@@ -2271,6 +2302,13 @@ class FTBDatabaseHandler:
         results = self.cursor.fetchall()
         
         return results
+
+    def fetchQuery(self, query, all=False):
+        self.cursor.execute(query)
+        if all:
+            return self.cursor.fetchall()
+        else:
+            return self.cursor.fetchone()
 
 class FTB_Gramps_sync_options(ToolOptions):
     """Options for FTB_Gramps_sync."""
