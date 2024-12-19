@@ -6,6 +6,7 @@
 from functools import partial
 import mimetypes
 import copy
+import time
 from typing import Optional
 from constants import *
 from ftb_dto import *
@@ -199,6 +200,97 @@ class IntroductionPage(Page):
         self.pack_start(label, False, False, 0)
         self._complete = True
 
+class FilterBox(Gtk.Box):
+    def __init__(self, cfg):
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+
+        self.cfg = cfg
+        self.timestamp = 0
+
+        # Checkbox to enable/disable filtering
+        self.filter_checkbox = Gtk.CheckButton(label=MENU_LBL_FILTER_CHKBOX)
+        self.filter_checkbox.connect("toggled", self.on_filter_toggled)
+        self.pack_start(self.filter_checkbox, False, False, 0)
+
+        # Expander to hold the filter options
+        self.filter_expander = Gtk.Expander(label=MENU_LBL_FILTER_LBL)
+        self.pack_start(self.filter_expander, True, True, 0)
+
+        # Frame to contain the filtering options
+        self.filter_frame = Gtk.Frame()
+        self.filter_frame.set_shadow_type(Gtk.ShadowType.ETCHED_IN)
+        self.filter_frame.set_margin_top(10)
+        self.filter_frame.set_margin_bottom(10)
+        self.filter_frame.set_margin_start(10)
+        self.filter_frame.set_margin_end(10)
+        self.filter_expander.add(self.filter_frame)
+
+        # Box inside the frame to hold filter widgets
+        self.filter_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        self.filter_box.set_margin_top(10)
+        self.filter_box.set_margin_bottom(10)
+        self.filter_box.set_margin_start(10)
+        self.filter_box.set_margin_end(10)
+        self.filter_frame.add(self.filter_box)
+
+        # Add date filter option
+        self.create_date_filter()
+
+        # Initially disable all filtering options
+        self.filter_box.set_sensitive(False)
+
+    def create_date_filter(self):
+        # Label for the date filter
+        date_filter_label = Gtk.Label(label=MENU_LBL_FILTER_UPD, xalign=0)
+        self.filter_box.pack_start(date_filter_label, False, False, 0)
+
+        # Calendar widget for date selection
+        self.calendar = Gtk.Calendar()
+        self.filter_box.pack_start(self.calendar, False, False, 0)
+
+        # Spin buttons for time selection (hours and minutes)
+        time_box = Gtk.Box(spacing=5)
+        self.filter_box.pack_start(time_box, False, False, 0)
+
+        hour_label = Gtk.Label(label=MENU_LBL_FILTER_UPD_H)
+        time_box.pack_start(hour_label, False, False, 0)
+
+        self.hour_spin = Gtk.SpinButton()
+        self.hour_spin.set_adjustment(Gtk.Adjustment(0, 0, 23, 1, 1, 0))
+        self.hour_spin.set_numeric(True)
+        time_box.pack_start(self.hour_spin, False, False, 0)
+
+        minute_label = Gtk.Label(label=MENU_LBL_FILTER_UPD_M)
+        time_box.pack_start(minute_label, False, False, 0)
+
+        self.minute_spin = Gtk.SpinButton()
+        self.minute_spin.set_adjustment(Gtk.Adjustment(0, 0, 59, 1, 1, 0))
+        self.minute_spin.set_numeric(True)
+        time_box.pack_start(self.minute_spin, False, False, 0)
+
+        # Button to save the selected date/time
+        self.save_button = Gtk.Button(label=MENU_LBL_FILTER_UPD_SET)
+        self.save_button.connect("clicked", self.on_save_date)
+        self.filter_box.pack_start(self.save_button, False, False, 0)
+
+    def on_filter_toggled(self, checkbox):
+        # Enable or disable all filter options based on checkbox state
+        self.filter_box.set_sensitive(checkbox.get_active())
+        self.cfg._doFilter = checkbox.get_active()
+
+    def on_save_date(self, button):
+        # Get date from the calendar
+        year, month, day = self.calendar.get_date()
+        # Get time from the spin buttons
+        hour = self.hour_spin.get_value_as_int()
+        minute = self.minute_spin.get_value_as_int()
+
+        # Create a datetime object
+        selected_date = datetime(year, month + 1, day, hour, minute)
+        # Convert to Unix timestamp
+        self.timestamp = int(time.mktime(selected_date.timetuple()))
+        self.cfg.filterOptions.upd_stamp = self.timestamp
+
 class FileSelectorPage(Page):
     def __init__(self, assistant, cfg):
         super().__init__(assistant)
@@ -233,6 +325,9 @@ class FileSelectorPage(Page):
 
         self.folder_error = Gtk.Label(label="")
         main_box.pack_start(self.folder_error, False, False, 5)
+
+        self.filtersBox = FilterBox(cfg)
+        main_box.pack_start(self.filtersBox, False, False, 5)
 
         # copy media
         self.doCopyChk = Gtk.CheckButton(label=MENU_LBL_CHK_COPYMEDIA)
@@ -743,13 +838,13 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         self.find_photos_folder()
 
         allPersonsIds = self.dbHandler.fetchDbData(["individual_id"], "individual_main_data")
-        allFamiliesIds = self.dbHandler.fetchDbData(["family_id"], "family_main_data")
+        # allFamiliesIds = self.dbHandler.fetchDbData(["family_id"], "family_main_data")
 
         for id in allPersonsIds:
             self.handleObject(self.findPerson, id, False, False)
 
-        for id in allFamiliesIds:
-            self.handleObject(self.findFamily, id, False, False)
+        # for id in allFamiliesIds:
+        #     self.handleObject(self.findFamily, id, False, False)
 
         if self.succesfuly:
             self.log(HINT_PROCCES_DONE_S)
@@ -1168,7 +1263,17 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
             return (mainKey, "")
     
     def checkFilter(self, data):
+        print(f"TRYFILTER: {self._doFilter}, {self.filterOptions}")
         if not self._doFilter: return True
+
+        data = toTuple(data)
+
+        if data.count == 2:
+            data, langData = data
+        else:
+            data = data[0]
+
+        print(f"DOING: {data}")
 
         if not isinstance(data, (individual_main_data_DTO)): return True
 
@@ -1177,6 +1282,9 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
 
         if opts.upd_stamp:
             result = data.last_update > opts.upd_stamp
+            print(f"----FILTER: {opts.upd_stamp} < {data.last_update} = {result}")
+
+        print(f"RES: {result}")
 
         return result
     #endregion
@@ -1384,6 +1492,8 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         person.set_primary_name(primary_name)
         
         self.addConnectReferences(person, newNotes, newAttributes, newMedia, newEvents, newCitations, newUrls, newAddresses, newNames, primaryName=primary_name)
+
+        self.handleFamily(mainData)
 
         return person
 
@@ -2255,6 +2365,13 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
             REPOSITORY_ID_PFX: REPOSITORY_ID_FORM,
         }
 
+    def handleFamily(self, personDto):
+        conn = self.fetchData((personDto.individual_id, family_individual_connection_DTO, True, None, "individual_id = ?"))
+        fam_id = conn.family_id
+        if fam_id:
+            if not getattr(self, f"FAM_HANDLED_{fam_id}", False):
+                self.handleObject(self.findFamily, fam_id, False, False)
+                setattr(self, f"FAM_HANDLED_{fam_id}", True)
     #endregion
 
     #endregion

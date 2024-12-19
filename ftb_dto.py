@@ -104,6 +104,7 @@ class individual_fact_lang_data_DTO(BaseDTO):
 
 class family_individual_connection_DTO(BaseDTO):
     key = "family_id"
+    family_id: int
     individual_id: int
     individual_role_type: int
 

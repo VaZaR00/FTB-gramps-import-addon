@@ -32,6 +32,13 @@ MENU_LBL_TIP_COPYMEDIA = _("Copy media to user media folder path")
 MENU_LBL_CHK_DOHANDLE = _("Handle Changes")
 MENU_LBL_TIP_DOHANDLE = _("Select if you need to Handle Changes after progress or just transfer all as it is")
 
+MENU_LBL_FILTER_CHKBOX = _("Enable filter")
+MENU_LBL_FILTER_LBL = _("Filter Options")
+MENU_LBL_FILTER_UPD = _("Filter by last update")
+MENU_LBL_FILTER_UPD_M = _("Minute:")
+MENU_LBL_FILTER_UPD_H = _("Hour:")
+MENU_LBL_FILTER_UPD_SET = _("Set")
+
 MENU_LBL_PROGRESS_TITLE = _("Progress")
 MENU_LBL_PROGRESS_TEXT = _("Processing is ongoing. Please wait...")
 
