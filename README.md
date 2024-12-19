@@ -20,7 +20,7 @@ Than read instruction in addons menu.
 
 You will have to choose folder path of your FTB family tree project and you can manage some options
 
-![menu_file](https://github.com/user-attachments/assets/5ba69a8a-063d-415e-ad5c-64e776e6482a)
+![image](https://github.com/user-attachments/assets/c0e4f83c-d09e-4088-8cdc-e7ef5186fe28)
 
 Which you can get in FTB:
 "File" -> "Manage Projects"
@@ -41,4 +41,4 @@ It iterates through each person in FTB database and transfer all connected to th
 such as Facts, Notes, Media, Citates and so on...
 And then iterate through each family in FTB database transfering its data too and connecting persons.
 It tries to find if that object is already in gramps by its _UID attribute for Person, Family, Event, Media and id (gramps_id formated to X000N) for other objects.
-If object exists and you "Commited" it in "Handle Chnages" tab it replaces all non referenced values (strings, numbers, etc.) with FTB values, than iterates through objects reference list (attributes, notes, media, etc.) and tries to find it by id or by name and value (attributes, urls) and replace data there, or create new object.
+If object exists and you "Commited" it in "Handle Chnages" tab (NOW Optional) it replaces all non referenced values (strings, numbers, etc.) with FTB values, than iterates through objects reference list (attributes, notes, media, etc.) and tries to find it by id or by name and value (attributes, urls) and replace data there, or create new object.
