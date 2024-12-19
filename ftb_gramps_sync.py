@@ -153,6 +153,9 @@ class ObjectSettings(BaseDTO):
     makeReplaceOption: bool = True
     doReplace: bool = True
     doFilter: bool = False
+
+class FilterOptions(BaseDTO):
+    upd_stamp: int
 #endregion
 
 #------------------------------------------------------------------------
@@ -245,7 +248,7 @@ class FileSelectorPage(Page):
         self.doHndlChk.set_active(cfg._doHandling)
         main_box.pack_start(self.doHndlChk, False, False, 5)
 
-        # object options filterByUPD
+        # object options
         for key, option in self.objectSettings.items():
             if not option.makeReplaceOption: continue
             checkbox = Gtk.CheckButton(label=MENU_LBL_CHK_REPLACE.format(key.__name__))
@@ -565,6 +568,7 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         self.succesfuly = True
         self._doCopyMedia = False
         self._doHandling = True
+        self._doFilter = False
 
         if DEV_TEST_BD_PATH:
             self.tryConnectSQLdb(self.path)
@@ -716,7 +720,9 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
             Address: ObjectSettings(),
             Place: ObjectSettings(),
         }
-        self.objectSettings[Person].filterByUPDstr = f"last_update = ?, {individual_main_data_DTO.key} = ?"
+        # self.objectSettings[Person].filterByUPDstr = f"last_update = ?, {individual_main_data_DTO.key} = ?"
+
+        self.filterOptions = FilterOptions()
 
         self.userMediaFolder = self.db.get_mediapath()
         self.getPrefixesFromConfig()
@@ -763,6 +769,7 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
 
     def handleObject(self, find, arg=None, returnObj=False, keepEmpty=True):
         obj, modify, objClass, data = find(arg)
+        if not self.checkFilter(data): return None
         name = objClass.__name__.lower()
         old = None
         exists = bool(obj)
@@ -1159,13 +1166,25 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         except Exception as e:
             self.log(f"ERROR while getting filter {e}")
             return (mainKey, "")
+    
+    def checkFilter(self, data):
+        if not self._doFilter: return True
+
+        if not isinstance(data, (individual_main_data_DTO)): return True
+
+        result = False
+        opts = self.filterOptions
+
+        if opts.upd_stamp:
+            result = data.last_update > opts.upd_stamp
+
+        return result
     #endregion
 
     #region Find objects in gramps
     def findPerson(self, id):
         if not id: return None, self.modifyPerson, Person, None
-        key, filterStr = self.getFilter(Person, id)
-        mainData, dataSets = self.fetchData((key, individual_main_data_DTO, True, None, filterStr), (id, individual_data_set_DTO, False))
+        mainData, dataSets = self.fetchData((id, individual_main_data_DTO), (id, individual_data_set_DTO, False))
         person = self.findByIdsAttributes(mainData.guid, "person")
         langData = [self.fetchData(((dataSet.individual_data_set_id, ), individual_lang_data_DTO)) for dataSet in dataSets]
         langData = [el for el in langData if el is not None]
