@@ -20,7 +20,13 @@ Than read instruction in addons menu.
 
 You will have to choose folder path of your FTB family tree project and you can manage some options
 
-![image](https://github.com/user-attachments/assets/c0e4f83c-d09e-4088-8cdc-e7ef5186fe28)
+![menu_file](https://github.com/user-attachments/assets/465118f1-1c5b-4d34-81fb-2def7b54d9c9)
+
+*NEW* also you can apply some filters:
+
+![filter_upd](https://github.com/user-attachments/assets/612108d6-dc8b-4353-aa48-f2f3e4897ae2)
+
+1. Filter by person's "last update". Note: In FTB person's "last update" updates when you make changes directly in Person's info (changing Facts doesn't make update for some reason).
 
 Which you can get in FTB:
 "File" -> "Manage Projects"
