@@ -35,7 +35,7 @@ from gramps.gui.plug.tool import BatchTool, ToolOptions
 from gramps.gen.config import config
 from gramps.gen.lib.refbase import RefBase
 
-DEV_TEST_BD_PATH = ''
+DEV_TEST_BD_PATH = 'C:/Users/Sasha/Documents/MyHeritage/1st_1'
 
 CHANGES_COMMIT_MAIN_CLASSES = (Person, Family, Repository, Media, Source, Place)
 
@@ -477,9 +477,10 @@ class HandleChanges(Page):
         header_hbox.set_margin_end(5)
 
         # Expander for toggle
-        expander_toggle = Gtk.Expander(label=obj.name)
+        expander_toggle = Gtk.Expander(label=f"{obj.name}: {obj.attributes[0].newValue}")
         expander_toggle.set_expanded(False)  # Start unexpanded
         expander_toggle.set_hexpand(False)  # Prevent expanding unnecessarily
+        expander_toggle.connect("activate", self.on_expander_activated, obj, main_vbox, level)
         self.expanders.append(expander_toggle)
 
         # Commit checkbox
@@ -495,43 +496,43 @@ class HandleChanges(Page):
         header_hbox.pack_end(commit_checkbox, False, False, 0)
         main_vbox.pack_start(header_hbox, False, False, 0)
 
-        # Content box for attributes and secondary objects
-        content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1)
+        # # Content box for attributes and secondary objects
+        # content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1)
 
-        # Attributes table
-        attr_listbox = Gtk.ListBox()
-        for attr in obj.attributes:
-            row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
-            name_label = Gtk.Label(label=attr.name)
-            new_value_label = Gtk.Label(label=attr.newValue)
-            old_value_label = Gtk.Label(label=attr.oldValue)
+        # # Attributes table
+        # attr_listbox = Gtk.ListBox()
+        # for attr in obj.attributes:
+        #     row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        #     name_label = Gtk.Label(label=attr.name)
+        #     new_value_label = Gtk.Label(label=attr.newValue)
+        #     old_value_label = Gtk.Label(label=attr.oldValue)
 
-            name_label.set_xalign(0)
-            new_value_label.set_xalign(0.5)
-            old_value_label.set_xalign(1)
+        #     name_label.set_xalign(0)
+        #     new_value_label.set_xalign(0.5)
+        #     old_value_label.set_xalign(1)
 
-            row.pack_start(name_label, True, True, 0)
-            row.pack_start(new_value_label, True, True, 0)
-            row.pack_start(old_value_label, True, True, 0)
-            attr_listbox.add(row)
+        #     row.pack_start(name_label, True, True, 0)
+        #     row.pack_start(new_value_label, True, True, 0)
+        #     row.pack_start(old_value_label, True, True, 0)
+        #     attr_listbox.add(row)
 
-        attr_listbox.show_all()
-        content_box.pack_start(attr_listbox, False, False, 0)
+        # attr_listbox.show_all()
+        # content_box.pack_start(attr_listbox, False, False, 0)
 
-        # Secondary objects
-        if obj.secondaryObjects:
-            for secondary in obj.secondaryObjects:
-                secondary_block = self.create_object_block(secondary, level=level + 1)
-                content_box.pack_start(secondary_block, False, False, 0)
+        # # Secondary objects
+        # if obj.secondaryObjects:
+        #     for secondary in obj.secondaryObjects:
+        #         secondary_block = self.create_object_block(secondary, level=level + 1)
+        #         content_box.pack_start(secondary_block, False, False, 0)
 
-        # Add the content box to the expander
-        expander_toggle.add(content_box)
-        expander_toggle.show_all()
+        # # Add the content box to the expander
+        # expander_toggle.add(content_box)
+        # expander_toggle.show_all()
 
-        # Add the expander content to the main vertical box
-        main_vbox.pack_start(content_box, False, False, 0)
+        # # Add the expander content to the main vertical box
+        # main_vbox.pack_start(content_box, False, False, 0)
 
-        # Return the entire frame
+        # # Return the entire frame
         frame.show_all()
         return frame
 
@@ -606,6 +607,50 @@ class HandleChanges(Page):
         for sobj in obj.secondaryObjects:
             if not isinstance(sobj.objRef, CHANGES_COMMIT_MAIN_CLASSES):
                 self.checkLinkedChkboxes(sobj, chk)
+
+    def on_expander_activated(self, expander, obj, main_vbox, level):
+        if not expander.get_expanded() and not getattr(expander, 'loaded', False):
+            # Load and display the data for the object block
+            self.load_nested_objects(expander, obj, main_vbox, level)
+            expander.loaded = True
+
+    def load_nested_objects(self, expander, obj, main_vbox, level):
+        # Content box for attributes and secondary objects
+        content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1)
+
+        # Attributes table
+        attr_listbox = Gtk.ListBox()
+        for attr in obj.attributes:
+            row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+            name_label = Gtk.Label(label=attr.name)
+            new_value_label = Gtk.Label(label=attr.newValue)
+            old_value_label = Gtk.Label(label=attr.oldValue)
+
+            name_label.set_xalign(0)
+            new_value_label.set_xalign(0.5)
+            old_value_label.set_xalign(1)
+
+            row.pack_start(name_label, True, True, 0)
+            row.pack_start(new_value_label, True, True, 0)
+            row.pack_start(old_value_label, True, True, 0)
+            attr_listbox.add(row)
+
+        content_box.pack_start(attr_listbox, False, False, 0)
+
+        # Secondary objects
+        if obj.secondaryObjects:
+            for secondary in obj.secondaryObjects:
+                secondary_block = self.create_object_block(secondary, level=level + 1)
+                content_box.pack_start(secondary_block, False, False, 0)
+
+        expander.add(content_box)
+        main_vbox.pack_start(content_box, False, False, 0)
+        main_vbox.show_all()
+        expander.show_all()
+
+        setattr(main_vbox, "content_box", content_box)
+
+        return content_box
 
     def commit_all(self, state, widget):
         for obj, *chks in self.commitChkboxes:
@@ -1263,7 +1308,6 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
             return (mainKey, "")
     
     def checkFilter(self, data):
-        print(f"TRYFILTER: {self._doFilter}, {self.filterOptions}")
         if not self._doFilter: return True
 
         data = toTuple(data)
@@ -1273,8 +1317,6 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         else:
             data = data[0]
 
-        print(f"DOING: {data}")
-
         if not isinstance(data, (individual_main_data_DTO)): return True
 
         result = False
@@ -1282,9 +1324,6 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
 
         if opts.upd_stamp:
             result = data.last_update > opts.upd_stamp
-            print(f"----FILTER: {opts.upd_stamp} < {data.last_update} = {result}")
-
-        print(f"RES: {result}")
 
         return result
     #endregion

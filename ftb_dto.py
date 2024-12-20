@@ -231,23 +231,23 @@ class MHAddress(BaseDTO):
     parent: object
 
 class AttributeDTO(BaseDTO):
-    privacy: int
     type: str
     value: str
+    privacy: int
     parent: object
 
     def hintKey(self):
         return f"{self.type}: {self.value}"
 
 class SrcAttributeDTO(BaseDTO):
-    privacy: int
     type: str
     value: str
+    privacy: int
 
 class DateDTO(BaseDTO):
+    value: tuple
     quality: int
     modified: int
-    value: tuple
     dateText: str
     parent: object
     
@@ -255,8 +255,8 @@ class DateDTO(BaseDTO):
         return f"{self.value}"
 
 class UrlDTO(BaseDTO):
-    type: str
     path: str
+    type: str
     descr: str
     privacy: int
     parent: object
@@ -271,19 +271,19 @@ class SurnameDTO(BaseDTO):
     parent: object
 
 class PersonDTO(BaseDTO):
+    primary_name: str
     gramps_id: str
     privacy: bool
     gender: str
-    primary_name: str
 
 class FamilyDTO(BaseDTO):
     gramps_id: str
     privacy: bool
 
 class EventDTO(BaseDTO):
+    type: str
     gramps_id: str
     privacy: bool
-    type: str
     date_object: Date
     description: str
     place_handle: str
@@ -306,27 +306,27 @@ class CitationDTO(BaseDTO):
     date_object: Date
 
 class MediaDTO(BaseDTO):
-    gramps_id: str
     path: str
+    gramps_id: str
     privacy: bool
     date_object: Date
     description: str
     mime_type: str
 
 class SourceDTO(BaseDTO):
-    gramps_id: str
     title: bool
+    gramps_id: str
     abbreviation: str
     author: str
     publication_info: str
 
 class RepositoryDTO(BaseDTO):
-    gramps_id: str
     name: bool
+    gramps_id: str
 
 class PlaceDTO(BaseDTO):
-    gramps_id: str
     name: PlaceName
+    gramps_id: str
 
 class AddressDTO(BaseDTO):
     street: str
