@@ -35,7 +35,7 @@ from gramps.gui.plug.tool import BatchTool, ToolOptions
 from gramps.gen.config import config
 from gramps.gen.lib.refbase import RefBase
 
-DEV_TEST_BD_PATH = 'C:/Users/Sasha/Documents/MyHeritage/1st_1'
+DEV_TEST_BD_PATH = ''
 
 CHANGES_COMMIT_MAIN_CLASSES = (Person, Family, Repository, Media, Source, Place)
 
