@@ -35,6 +35,7 @@ from gramps.gui.plug.tool import BatchTool, ToolOptions
 from gramps.gen.config import config
 from gramps.gen.lib.refbase import RefBase
 
+# DEV_TEST_BD_PATH = 'C:/Users/Sasha/Documents/MyHeritage/1st_1'
 DEV_TEST_BD_PATH = ''
 
 CHANGES_COMMIT_MAIN_CLASSES = (Person, Family, Repository, Media, Source, Place)
@@ -42,6 +43,10 @@ CHANGES_COMMIT_MAIN_CLASSES = (Person, Family, Repository, Media, Source, Place)
 """
 TODO:
 1. Translation
+
+Problems:
+1. It cant find some urls, attributes and dups it
+2. It pushes empty attrs and urls
 """
 
 #region Helpers
@@ -109,13 +114,11 @@ def getReferencedObjectsCommited(obj, func=lambda a: a):
             if not method: continue
 
             refs = toArr(method())
-            # print(f'\n++{methodName.upper()}: {refs}\n method: {method}\n')
             
             for ref in refs:
                 resList.append(func(ref))
         except Exception as e:
             pass
-            # print(f"GET SECONDARY: {e}")
 
     return resList
 
@@ -133,6 +136,37 @@ def toTuple(v):
         return v
     else: 
         return (v, )
+
+def tolwr(s):
+    if isinstance(s, str):
+        return s.lower()
+    else: return s
+
+def foo(*args): pass
+
+def getGetter(c):
+    custom = {}
+    return custom.get(c, "g" + c[1:])
+
+def setObjectAttributes(obj, **kwargs):
+    changed = False
+    for key, val in kwargs.items():
+        if key and val:
+            oldVal = getattr(obj, getGetter(key), foo)()
+            if oldVal != val:
+                changed = True
+                # print(f"---SET: {val} and {oldVal}")
+                getattr(obj, key, foo)(val)
+
+    return changed
+
+def tryGetHandle(obj):
+    try: return obj.get_handle()
+    except: return None
+
+def tryGetGrampsID(obj):
+    try: return obj.get_gramps_id()
+    except: return None
 
 class ToConnectReferenceObjects(BaseDTO):
     # obj: object = None
@@ -450,6 +484,7 @@ class HandleChanges(Page):
         scrolled_window.set_min_content_height(200)
         scrolled_window.set_max_content_height(400)
         scrolled_window.add(self.data_area)
+        self.scrolled_window = scrolled_window
 
         self.loading_lbl = Gtk.Label(label=MENU_LBL_LOADING)
         self.loading_lbl.set_xalign(0)
@@ -460,6 +495,15 @@ class HandleChanges(Page):
 
     def create_object_block(self, obj: ObjectHandle = ObjectHandle(), level=0):
         """Create a block to display an ObjectHandle with nested attributes and objects."""
+
+        try:
+            clas = eval(obj.name)
+        except: clas = ""
+
+        isMainNested = (clas in CHANGES_COMMIT_MAIN_CLASSES) and level > 0
+
+        name = f"{obj.name}: {obj.attributes[0].newValue}"
+
         # Main frame for the block with rounded edges
         frame = Gtk.Frame()
         frame.set_shadow_type(Gtk.ShadowType.IN)
@@ -475,12 +519,20 @@ class HandleChanges(Page):
         header_hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=1)
         header_hbox.set_margin_start(5)
         header_hbox.set_margin_end(5)
+        # if isMainNested:
+        #     name_label = Gtk.Label(label=name)
+        #     name_label.set_xalign(0)
+        #     header_hbox.pack_start(name_label, True, True, 0)
 
         # Expander for toggle
-        expander_toggle = Gtk.Expander(label=f"{obj.name}: {obj.attributes[0].newValue}")
+        expander_toggle = Gtk.Expander(label=name)
         expander_toggle.set_expanded(False)  # Start unexpanded
         expander_toggle.set_hexpand(False)  # Prevent expanding unnecessarily
-        expander_toggle.connect("activate", self.on_expander_activated, obj, main_vbox, level)
+        if isMainNested:
+            exp_func = self.on_expander_activated_linked
+        else:
+            exp_func = self.on_expander_activated
+        expander_toggle.connect("activate", exp_func, obj, main_vbox, level)
         self.expanders.append(expander_toggle)
 
         # Commit checkbox
@@ -496,44 +548,12 @@ class HandleChanges(Page):
         header_hbox.pack_end(commit_checkbox, False, False, 0)
         main_vbox.pack_start(header_hbox, False, False, 0)
 
-        # # Content box for attributes and secondary objects
-        # content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1)
-
-        # # Attributes table
-        # attr_listbox = Gtk.ListBox()
-        # for attr in obj.attributes:
-        #     row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
-        #     name_label = Gtk.Label(label=attr.name)
-        #     new_value_label = Gtk.Label(label=attr.newValue)
-        #     old_value_label = Gtk.Label(label=attr.oldValue)
-
-        #     name_label.set_xalign(0)
-        #     new_value_label.set_xalign(0.5)
-        #     old_value_label.set_xalign(1)
-
-        #     row.pack_start(name_label, True, True, 0)
-        #     row.pack_start(new_value_label, True, True, 0)
-        #     row.pack_start(old_value_label, True, True, 0)
-        #     attr_listbox.add(row)
-
-        # attr_listbox.show_all()
-        # content_box.pack_start(attr_listbox, False, False, 0)
-
-        # # Secondary objects
-        # if obj.secondaryObjects:
-        #     for secondary in obj.secondaryObjects:
-        #         secondary_block = self.create_object_block(secondary, level=level + 1)
-        #         content_box.pack_start(secondary_block, False, False, 0)
-
-        # # Add the content box to the expander
-        # expander_toggle.add(content_box)
-        # expander_toggle.show_all()
-
-        # # Add the expander content to the main vertical box
-        # main_vbox.pack_start(content_box, False, False, 0)
-
         # # Return the entire frame
         frame.show_all()
+
+        if not isMainNested:
+            setattr(obj, "hndlChngBlock", frame)
+
         return frame
 
     def create_buttons(self):
@@ -612,65 +632,92 @@ class HandleChanges(Page):
         if not expander.get_expanded() and not getattr(expander, 'loaded', False):
             # Load and display the data for the object block
             self.load_nested_objects(expander, obj, main_vbox, level)
-            expander.loaded = True
+
+    def on_expander_activated_linked(self, expander, obj, *args):
+        self.setFocusOn(getattr(obj, "hndlChngBlock", None))
+        
+    def setFocusOn(self, widget):
+        if widget:
+            try:
+                self.scrolled_window.get_vadjustment().set_value(
+                    widget.get_allocation().y - self.scrolled_window.get_vadjustment().get_value()
+                )
+            except Exception as e: print(f"ERROR WHILE SCROLLING TO BLOCK '{widget}'. Error: {e}")
 
     def load_nested_objects(self, expander, obj, main_vbox, level):
-        # Content box for attributes and secondary objects
-        content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1)
+        try:
+            # Content box for attributes and secondary objects
+            content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1)
 
-        # Attributes table
-        attr_listbox = Gtk.ListBox()
-        for attr in obj.attributes:
-            row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
-            name_label = Gtk.Label(label=attr.name)
-            new_value_label = Gtk.Label(label=attr.newValue)
-            old_value_label = Gtk.Label(label=attr.oldValue)
+            # Attributes table
+            attr_listbox = Gtk.ListBox()
+            for attr in obj.attributes:
+                row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+                name_label = Gtk.Label(label=attr.name)
+                new_value_label = Gtk.Label(label=attr.newValue)
+                old_value_label = Gtk.Label(label=attr.oldValue)
 
-            name_label.set_xalign(0)
-            new_value_label.set_xalign(0.5)
-            old_value_label.set_xalign(1)
+                name_label.set_xalign(0)
+                new_value_label.set_xalign(0.5)
+                old_value_label.set_xalign(1)
 
-            row.pack_start(name_label, True, True, 0)
-            row.pack_start(new_value_label, True, True, 0)
-            row.pack_start(old_value_label, True, True, 0)
-            attr_listbox.add(row)
+                row.pack_start(name_label, True, True, 0)
+                row.pack_start(new_value_label, True, True, 0)
+                row.pack_start(old_value_label, True, True, 0)
+                attr_listbox.add(row)
 
-        content_box.pack_start(attr_listbox, False, False, 0)
+            content_box.pack_start(attr_listbox, False, False, 0)
 
-        # Secondary objects
-        if obj.secondaryObjects:
-            for secondary in obj.secondaryObjects:
-                secondary_block = self.create_object_block(secondary, level=level + 1)
-                content_box.pack_start(secondary_block, False, False, 0)
+            # Secondary objects
+            if obj.secondaryObjects:
+                for secondary in obj.secondaryObjects:
+                    secondary_block = self.create_object_block(secondary, level=level + 1)
+                    content_box.pack_start(secondary_block, False, False, 0)
 
-        expander.add(content_box)
-        main_vbox.pack_start(content_box, False, False, 0)
-        main_vbox.show_all()
-        expander.show_all()
+            expander.add(content_box)
+            main_vbox.pack_start(content_box, False, False, 0)
+            main_vbox.show_all()
+            expander.show_all()
 
-        setattr(main_vbox, "content_box", content_box)
+            setattr(main_vbox, "content_box", content_box)
 
-        return content_box
+            expander.loaded = True
+
+            return content_box
+        except Exception as e:
+            print(f"ERROR WHILE LOADING NESTED ELEMENTS: {e}")
 
     def commit_all(self, state, widget):
         for obj, *chks in self.commitChkboxes:
             for chk in chks:
                 chk.set_active(state)
 
+    # def linkCheckboxes(self, obj, chkbox):
+    #     exist = getFromListByKey(self.commitChkboxes, obj, None, returnAll=True)
+    #     if exist:
+    #         i = self.commitChkboxes.index(exist)
+    #         self.commitChkboxes[i] = (*exist, chkbox)
+    #     else:
+    #         self.commitChkboxes.append((obj, chkbox))
+
+    # def checkLinkedChkboxes(self, obj, state):
+    #     chks = getFromListByKey(self.commitChkboxes, obj, None, returnAll=True)
+    #     if chks:
+    #         _, *chkboxes = chks
+    #         for chk in chkboxes:
+    #             chk.set_active(state)
+
     def linkCheckboxes(self, obj, chkbox):
-        exist = getFromListByKey(self.commitChkboxes, obj, None, returnAll=True)
-        if exist:
-            i = self.commitChkboxes.index(exist)
-            self.commitChkboxes[i] = (*exist, chkbox)
+        chksList = getattr(obj, "linkedCheckboxes", [])
+        if chksList:
+            chksList.append(chkbox)
         else:
-            self.commitChkboxes.append((obj, chkbox))
+            setattr(obj, "linkedCheckboxes", [chkbox])
 
     def checkLinkedChkboxes(self, obj, state):
-        chks = getFromListByKey(self.commitChkboxes, obj, None, returnAll=True)
-        if chks:
-            _, *chkboxes = chks
-            for chk in chkboxes:
-                chk.set_active(state)
+        chks = getattr(obj, "linkedCheckboxes", [])
+        for chk in chks:
+            chk.set_active(state)
 
 class FinishPage(Page):
     """The finish page."""
@@ -907,7 +954,7 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         except Exception as e:
             return False
 
-    def handleObject(self, find, arg=None, returnObj=False, keepEmpty=True):
+    def handleObject(self, find, arg=None, returnObj=False, keepEmpty=False):
         obj, modify, objClass, data = find(arg)
         if not self.checkFilter(data): return None
         name = objClass.__name__.lower()
@@ -925,10 +972,10 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
             self.log(HINT_HANDLEOBJ_EXIST.format(name, forLog(data), obj))
             old = copy.deepcopy(obj)
         
+        new = None
         try:
             new = modify(obj, data)
         except Exception as e:
-            new = None
             self.log(HINT_HANDLEOBJ_ERROR.format(name, obj, data, e))
             self.succesfuly = False
 
@@ -936,15 +983,25 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
             if not keepEmpty: return None 
             new = obj
 
-        self.clearEmptyAttributes(new)
+        self.clearEmptySubobjects(new)
         self.addCompare((new, old))
         
         # self.log(HINT_HANDLEOBJ_COMMIT.format(name, obj, datetime.now()))
 
         if not exists or returnObj:
-            return new
-        else:
-            return None
+            if self.filterHandledObject(new):
+                # self.addCompare((new, old))
+                return new
+
+    def filterHandledObject(self, obj):
+        # return True
+        try:
+            objType = type(obj)
+            if objType == Attribute:
+                if (obj.type == RES_C) and (obj.value == 'False'): return False
+            return True
+        except:
+            return True
 
     def unpackFacts(self, id, type, parent):
         events = []
@@ -985,7 +1042,7 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
             if factType: token = factType
             
             if token in ATTRIBUTE_TYPES:
-                attributes.append((0, factName, text))
+                attributes.append((factName, text, 0))
             elif token in ADDRESS_TYPES:
                 address = self.parse_address(langData.header)
                 setattr(address, "parent", parent)
@@ -1029,7 +1086,7 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         for member in membersConnections:
             id = member.individual_id
             role = member.individual_role_type
-            person = self.findByIdsAttributes(formatMHid(id, "I"), "person", RIN, True)
+            person = self.findByIdsAttributes(formatMHid(id, "I"), "person", RIN, False)
 
             if not person: continue
 
@@ -1068,7 +1125,6 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
 
                 self.setPersonFamilyList(person, family.get_handle(), 0)
 
-            # self.addCompare((person, None))
             self.grampsDbMethod(person, "person")
             self.grampsDbMethod(family, "family")
 
@@ -1080,8 +1136,6 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         self.allObjectHandles: list[ObjectHandle] = []
 
         self.compareDto = CompareDTO()
-        
-        # print(f"--COMPARE\n{self.compares}\n--\n")
 
         for new, old in self.compares:
             if isinstance(new, CHANGES_COMMIT_MAIN_CLASSES):
@@ -1089,13 +1143,14 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
                 if obj:
                     objects.append(obj)
 
-        # print(objects)
         objects.sort(key=lambda x: x.sortval)
         return objects
     
     def createObjectHandle(self, new, old):
         exists = self.objectHandleExists(new)
         if exists: return exists
+
+        if new == old: old = None
 
         attrsNew = self.compareDto.getAttributes(new)
         attrsOld = self.compareDto.getAttributes(old)
@@ -1107,8 +1162,6 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         func = lambda obj, self: self.createObjectHandle(obj, self.getFromCompareList(obj, None))
         secondaryObjs = createCleanList(self.getSecondaryObjects(new), func, self)
         secondaryObjs.sort(key=lambda x: x.sortval)
-
-        # print(f"OBJECT_TYPE: {type(new)}\nSECOND: {self.getSecondaryObjects(new)}\nSECOND_made: {secondaryObjs}\n")
 
         res = ObjectHandle(
             clsName(new).title(),
@@ -1161,6 +1214,9 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
 
     def addConnectReferences(self, obj, *args, **kwargs):
         self.temp_i = 0
+
+        if not (all(val for key, val in kwargs.items())): return False
+        
         def getv(name, default=[]):
             val = default
             try:
@@ -1171,26 +1227,26 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
             self.temp_i += 1
             return val
 
-        self.referencesToConnect.append(
-            (
-                obj,
-                ToConnectReferenceObjects(
-                    notes=getv('notes'),
-                    attributes=getv('attributes'),
-                    medias=getv('medias'),
-                    events=getv('events'),
-                    citations=getv('citations'),
-                    urls=getv('urls'),
-                    addresses=getv('addresses'),
-                    names=getv('names'),
-                    surnames=getv('surnames'),
-                    repositories=getv('repositories'),
-                    source=getv('source', None),
-                    primaryName=getv('primaryName', None),
-                    place=getv('place', None)
-                )
-            )
+        new = ToConnectReferenceObjects(
+            notes=getv('notes'),
+            attributes=getv('attributes'),
+            medias=getv('medias'),
+            events=getv('events'),
+            citations=getv('citations'),
+            urls=getv('urls'),
+            addresses=getv('addresses'),
+            names=getv('names'),
+            surnames=getv('surnames'),
+            repositories=getv('repositories'),
+            source=getv('source', None),
+            primaryName=getv('primaryName', None),
+            place=getv('place', None)
         )
+        self.referencesToConnect.append((obj, new))
+
+        # print(f"+++Con: {new}")
+
+        return True
     
     def clearConRefFromNonCommit(self, cref):
         def check(o, att, isList=True):
@@ -1351,7 +1407,6 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         else:
             eventParentType = FAMILY_ID_PFX
 
-        
         if self.doReplace(Event):
             event = self.findByIdsAttributes(id, "event")
 
@@ -1435,6 +1490,8 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         source = None
         if self.doReplace(Source):
             source = self.tryFind(self.db.get_source_from_gramps_id, SOURCE_ID_PFX, id)
+            if not source:
+                source = self.getTempObj((SOURCE_ID_PFX, id), 1)
         data = self.fetchData((id, source_main_data_DTO), (id, source_lang_data_DTO))
         return source, self.modifySource, Source, data
 
@@ -1442,6 +1499,8 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         repository = None
         if self.doReplace(Repository):
             repository = self.tryFind(self.db.get_repository_from_gramps_id, REPOSITORY_ID_PFX, id)
+            if not repository:
+                repository = self.getTempObj((REPOSITORY_ID_PFX, id), 1)
         data = self.fetchData((id, repository_main_data_DTO), (id, repository_lang_data_DTO))
         return repository, self.modifyRepository, Repository, data
 
@@ -1464,9 +1523,8 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
             if parent:
                 url = self.findObjectByAttributes(
                     parent.get_url_list(),
-                    {"type": data.type, "path": data.path}
+                    {("get_type", ): data.type, "path": data.path}
                 )
-                
         return url, self.modifyURL, Url, data
 
     def findAddress(self, data: MHAddress):
@@ -1485,6 +1543,8 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         place = None
         if self.doReplace(Place):
             place = self.tryFind(self.db.get_place_from_gramps_id, PLACE_ID_PFX, id)
+            if not place:
+                place = self.getTempObj((PLACE_ID_PFX, id), 1)
         data = self.fetchData((id, places_lang_data_DTO))
         return place, self.modifyPlace, Place, data
     #endregion
@@ -1499,14 +1559,14 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         
         privacy = bool(mainData.privacy_level)
         gender = self.convert_gender(mainData.gender)
-        primary_name = self.handleObject(self.findName, names[0], True)
+        primary_name = self.handleObject(self.findName, names[0], True, True)
 
         defaultAttributes = [
-            (privacy, UPD, mainData.last_update),
-            (privacy, CRT, mainData.create_timestamp),
-            (privacy, UID, mainData.guid.lower()),
-            (privacy, RIN, formatMHid(mainData.individual_id, "I")),
-            (privacy, RES_C, mainData.research_completed)
+            (UPD, mainData.last_update, privacy),
+            (CRT, mainData.create_timestamp, privacy),
+            (UID, mainData.guid.lower(), privacy),
+            (RIN, formatMHid(mainData.individual_id, "I"), privacy),
+            (RES_C, bool(mainData.research_completed), privacy)
         ]
         
         events, attributes, urls, addresses, notes = self.unpackFacts(mainData.individual_id, PERSON_ID_PFX, person)
@@ -1526,26 +1586,33 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         newAddresses = self.createObjectsList(addresses)
 
         self.trySetGrampsId(person, mainData.individual_id, PERSON_ID_PFX, True)
-        person.set_privacy(privacy)
-        person.set_gender(gender)
-        person.set_primary_name(primary_name)
+        # person.set_privacy(privacy)
+        # person.set_gender(gender)
+        # person.set_primary_name(primary_name)
+        changed = setObjectAttributes(
+            person, 
+            set_privacy = privacy,
+            set_gender = gender,
+            set_primary_name = primary_name
+        )
         
-        self.addConnectReferences(person, newNotes, newAttributes, newMedia, newEvents, newCitations, newUrls, newAddresses, newNames, primaryName=primary_name)
+        changed1 = self.addConnectReferences(person, newNotes, newAttributes, newMedia, newEvents, newCitations, newUrls, newAddresses, newNames, primaryName=primary_name)
 
         self.handleFamily(mainData)
 
-        return person
+        if changed or changed1:
+            return person
 
     def modifyFamily(self, family: Family, data: family_main_data_DTO):
         mainData = data
-        if not mainData: return None
+        if not mainData: return
         
         privacy = False
 
         defaultAttributes = [
-            (privacy, UID, mainData.guid.lower()),
-            (privacy, UID, formatMHid(mainData.family_id, "F")),
-            (privacy, CRT, mainData.create_timestamp)
+            (UID, mainData.guid.lower(), privacy),
+            (RIN, formatMHid(mainData.family_id, "F"), privacy),
+            (CRT, mainData.create_timestamp, privacy)
         ]
         
         events, attributes, urls, addresses, notes = self.unpackFacts(mainData.family_id, FAMILY_ID_PFX, family)
@@ -1562,12 +1629,17 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         newNotes = self.createObjectsList(notes) + self.getNotes(mainData.token_on_item_id)
 
         self.trySetGrampsId(family, mainData.family_id, FAMILY_ID_PFX, True)
-        family.set_privacy(privacy)
+        # family.set_privacy(privacy)
+        changed = setObjectAttributes(
+            family, 
+            set_privacy = privacy
+        )
         
-        self.addConnectReferences(family, newNotes, newAttributes, newMedia, newEvents, newCitations)
+        changed1 = self.addConnectReferences(family, newNotes, newAttributes, newMedia, newEvents, newCitations)
         self.addFamilyConn(family, mainData.family_id)
         
-        return family
+        if changed or changed1:
+            return family
 
     def modifyEvent(self, event: Event, data: tuple):
         mainData, langData = data
@@ -1577,21 +1649,21 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         eventParentType = getattr(mainData, "parentType")
         if eventParentType == PERSON_ID_PFX:
             attributes = [
-                (privacy, PERSON_AGE, mainData.age),
-                (privacy, CAUSE_DEAT, langData.cause_of_death)
+                (PERSON_AGE, mainData.age, privacy),
+                (CAUSE_DEAT, langData.cause_of_death, privacy)
             ]
             id = mainData.individual_fact_id
             pfx = PERSON_EVENT_ID_PFX
         else:
             attributes = [
-                (privacy, SPOUSE_AGE, mainData.spouse_age)
+                (SPOUSE_AGE, mainData.spouse_age, privacy)
             ]
             id = mainData.family_fact_id
             pfx = FAMILY_EVENT_ID_PFX
 
         attributes += [
-            (privacy, UID, mainData.guid.lower()),
-            (privacy, RIN, formatMHid(id, "E"))
+            (UID, mainData.guid.lower(), privacy),
+            (RIN, formatMHid(id, "E"), privacy)
         ]
 
         eventType = self.defineEventType(mainData.token, mainData.fact_type)
@@ -1601,7 +1673,7 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         if not isEmptyOrWhitespace(causeOfDeat) and causeOfDeat: 
             description = description + f" {CAUSE_DEAT}: " + causeOfDeat
         
-        place = self.handleObject(self.findPlace, mainData.place_id, True, False)
+        place = self.handleObject(self.findPlace, mainData.place_id)
         
         media = self.formatFetchData(media_item_to_item_connection_DTO, mainData.token_on_item_id, self.findMedia)
         newNotes = self.getNotes(mainData.token_on_item_id)
@@ -1612,14 +1684,22 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         newMedia = self.createObjectsList(media)
 
         self.trySetGrampsId(event, id, pfx, True)
-        event.set_privacy(privacy)
-        event.set_type(eventType)
-        event.set_date_object(date)
-        event.set_description(description)
+        # event.set_privacy(privacy)
+        # event.set_type(eventType)
+        # event.set_date_object(date)
+        # event.set_description(description)
+        changed = setObjectAttributes(
+            event, 
+            set_privacy = privacy,
+            set_type = eventType,
+            set_date_object = date,
+            set_description = description
+        )
 
-        self.addConnectReferences(event, newNotes, newAttributes, newMedia, citations=newCitations, place=place)
+        changed1 = self.addConnectReferences(event, newNotes, newAttributes, newMedia, citations=newCitations, place=place)
         
-        return event
+        if changed or changed1:
+            return event
 
     def modifyName(self, name: Name, data: individual_lang_data_DTO):
         if not data: return None
@@ -1628,48 +1708,82 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
             self.setupRefList(
                 SurnameDTO, name, self.findSurname,
                 [
-                    (data.last_name, "", data.prefix),
-                    (data.former_name, "Given", ""),
-                    (data.married_surname, "Taken", ""),
-                    (data.aka, "Pseudonym", ""),
+                    (data.last_name, -1, data.prefix),
+                    (data.former_name, 3, ""),
+                    (data.married_surname, 4, ""),
+                    (data.aka, 8, ""),
                     (data.religious_name, "Religious")
                 ]
             )
         )
 
-        name.set_first_name(data.first_name)
-        name.set_suffix(data.suffix)
-        name.set_nick_name(data.nickname)
-        name.set_call_name(data.aka)
+        # name.set_first_name(data.first_name)
+        # name.set_suffix(data.suffix)
+        # name.set_nick_name(data.nickname)
+        # name.set_call_name(data.aka)
+        changed = setObjectAttributes(
+            name, 
+            set_first_name = data.first_name,
+            set_suffix = data.suffix,
+            set_nick_name = data.nickname,
+            set_call_name = data.aka
+        )
 
-        self.addConnectReferences(name, surnames=surnames)
+        changed1 = self.addConnectReferences(name, surnames=surnames)
+
+        if changed or changed1:
+            return name
 
     def modifySurname(self, surnameObj: Surname, data: SurnameDTO):
         if not data: return None
         if isEmptyOrWhitespace(data.surname): return None
         
-        surnameObj.set_surname(data.surname)
-        surnameObj.set_prefix(data.prefix)
-        surnameObj.set_origintype(data.origin)
-        return surnameObj
+        # surnameObj.set_surname(data.surname)
+        # surnameObj.set_prefix(data.prefix)
+        # surnameObj.set_origintype(data.origin)
+        changed = setObjectAttributes(
+            surnameObj, 
+            set_surname = data.surname,
+            set_prefix = data.prefix,
+            set_origintype = data.origin
+        )
+
+        if changed:
+            return surnameObj
 
     def modifyAttribute(self, att: Attribute, data: AttributeDTO):
         if not data: return None
         if isEmptyOrWhitespace(data.value): return None
         
-        att.set_privacy(data.privacy)
-        att.set_type(data.type)
-        att.set_value(data.value)
-        return att
+        # att.set_privacy(data.privacy)
+        # att.set_type(data.type)
+        # att.set_value(data.value)
+
+        changed = setObjectAttributes(
+            att, 
+            set_privacy = data.privacy,
+            set_type = data.type,
+            set_value = data.value
+        )
+
+        if changed:
+            return att
     
     def modifyNote(self, note: Note, data: tuple[note_main_data_DTO, note_lang_data_DTO]):
         mainData, langData = data
         if not (mainData and langData): return None
 
         self.trySetGrampsId(note, mainData.note_id, NOTE_ID_PFX)
-        note.set_privacy(bool(mainData.privacy_level))
-        note.set_styledtext(self.format_text(langData.note_text))
-        return note
+        # note.set_privacy(bool(mainData.privacy_level))
+        # note.set_styledtext(self.format_text(langData.note_text))
+        changed = setObjectAttributes(
+            note, 
+            set_privacy = bool(mainData.privacy_level),
+            set_styledtext = self.format_text(langData.note_text)
+        )
+
+        if changed:
+            return note
 
     def modifyMedia(self, media: Media, data: tuple[media_item_main_data_DTO, media_item_lang_data_DTO]):
         mainData, langData = data
@@ -1685,26 +1799,37 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
             self.setupRefList(
                 AttributeDTO, media, self.findAttribute,
                 [
-                    (prvt, UID, mainData.guid.lower()),
-                    (prvt, DESCR, langData.description),
-                    (prvt, RIN, formatMHid(mediaId, "M"))
+                    (UID, mainData.guid.lower(), prvt),
+                    (DESCR, langData.description, prvt),
+                    (RIN, formatMHid(mediaId, "M"), prvt)
                 ]
             )
         )
 
         self.trySetGrampsId(media, mediaId, MEDIA_ID_PFX, True)
-        media.set_path(path)
-        media.set_privacy(prvt)
-        media.set_date_object(self.extract_date(mainData))
-        media.set_description(langData.title)
+        # media.set_path(path)
+        # media.set_privacy(prvt)
+        # media.set_date_object(self.extract_date(mainData))
+        # media.set_description(langData.title)
         # deal with mime types
         value = mimetypes.guess_type(media.get_path())
+        mime = None
         if value and value[0]:  # found from filename
-            media.set_mime_type(value[0])
+            mime = value[0]
 
-        self.addConnectReferences(media, notes, attributes)
+        changed = setObjectAttributes(
+            media, 
+            set_path = path,
+            set_privacy = prvt,
+            set_date_object = self.extract_date(mainData),
+            set_description = langData.title,
+            set_mime_type = mime
+        )
 
-        return media
+        changed1 = self.addConnectReferences(media, notes, attributes)
+
+        if changed or changed1:
+            return media
 
     def modifyCitation(self, citation: Citation, data: tuple[citation_main_data_DTO, citation_lang_data_DTO]):
         mainData, langData = data
@@ -1714,22 +1839,30 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
             self.setupRefList(
                 AttributeDTO, citation, self.findAttribute,
                 [
-                    (False, DESCR, langData.description)
+                    (DESCR, langData.description, False)
                 ]
             )
         )
         notes = self.getNotes(mainData.token_on_item_id)
 
         self.trySetGrampsId(citation, mainData.citation_id, CITATION_ID_PFX)
-        citation.set_page(mainData.page)
-        citation.set_confidence_level(mainData.confidence)
-        citation.set_date_object(self.extract_date(mainData))
+        # citation.set_page(mainData.page)
+        # citation.set_confidence_level(mainData.confidence)
+        # citation.set_date_object(self.extract_date(mainData))
 
-        source = self.handleObject(self.findSource, mainData.source_id, True, False)
+        changed = setObjectAttributes(
+            citation, 
+            set_page = mainData.page,
+            set_confidence_level = mainData.confidence,
+            set_date_object = self.extract_date(mainData)
+        )
 
-        self.addConnectReferences(citation, notes, attributes, source=source)
+        source = self.handleObject(self.findSource, mainData.source_id)
 
-        return citation
+        changed1 = self.addConnectReferences(citation, notes, attributes, source=source)
+
+        if changed or changed1:
+            return citation
     
     def modifySource(self, source: Source, data: tuple[source_main_data_DTO, source_lang_data_DTO]):
         mainData, langData = data
@@ -1740,9 +1873,9 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
             self.setupRefList(
                 AttributeDTO, source, self.findAttribute,
                 [
-                    (False, CRT, mainData.create_timestamp),
-                    (False, SRC_TEXT, langData.text),
-                    (False, AGENCY, langData.agency)
+                    (CRT, mainData.create_timestamp, False),
+                    (SRC_TEXT, langData.text, False),
+                    (AGENCY, langData.agency, False)
                 ]
             )
         )
@@ -1751,16 +1884,25 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         )
         
         self.trySetGrampsId(source, mainData.source_id, SOURCE_ID_PFX)
-        source.set_title(langData.title)
-        source.set_abbreviation(langData.abbreviation)
-        source.set_author(langData.author)
-        source.set_publication_info(langData.publisher)
+        # source.set_title(langData.title)
+        # source.set_abbreviation(langData.abbreviation)
+        # source.set_author(langData.author)
+        # source.set_publication_info(langData.publisher)
 
-        repo = self.handleObject(self.findRepository, mainData.repository_id, True, False)
+        changed = setObjectAttributes(
+            source, 
+            set_title = langData.title,
+            set_abbreviation = langData.abbreviation,
+            set_author = langData.author,
+            set_publication_info = langData.publisher,
+        )
+
+        repo = self.handleObject(self.findRepository, mainData.repository_id)
         
-        self.addConnectReferences(source, notes, attributes, medias, repositories=[repo])
+        changed1 = self.addConnectReferences(source, notes, attributes, medias, repositories=[repo])
 
-        return source
+        if changed or changed1:
+            return source
 
     def modifyRepository(self, repo: Repository, data: tuple[repository_main_data_DTO, repository_lang_data_DTO]):
         mainData, langData = data
@@ -1784,17 +1926,17 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         newAddresses = self.createObjectsList([(self.findAddress, repoAddress)])
 
         self.trySetGrampsId(repo, mainData.repository_id, REPOSITORY_ID_PFX)
-        repo.set_name(langData.name)
-        for note in notes:
-            repo.add_note(note.get_handle())
-        for url in urls:
-            repo.add_url(url)
-        for address in newAddresses:
-            repo.add_address(address)
+        # repo.set_name(langData.name)
 
-        self.addConnectReferences(repo, notes, urls=urls, addresses=newAddresses)
+        changed = setObjectAttributes(
+            repo, 
+            set_name = langData.name
+        )
 
-        return repo
+        changed1 = self.addConnectReferences(repo, notes, urls=urls, addresses=newAddresses)
+
+        if changed or changed1:
+            return repo
     
     def modifyDate(self, dateObj: Date, data: DateDTO):
         if not data: return None
@@ -1805,25 +1947,46 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
 
     def modifyURL(self, url: Url, data: UrlDTO):
         if not data: return None
+        if not data.path: return None
 
-        url.set_type(data.type)
-        url.set_description(data.descr)
-        url.set_path(data.path)
-        url.set_privacy(bool(data.privacy))
+        # url.set_type(data.type)
+        # url.set_description(data.descr)
+        # url.set_path(data.path)
+        # url.set_privacy(bool(data.privacy))
 
-        return url
+        changed = setObjectAttributes(
+            url, 
+            set_type = data.type,
+            set_description = data.descr,
+            set_path = data.path,
+            set_privacy = bool(data.privacy)
+        )
+
+        if changed:
+            return url
 
     def modifyAddress(self, address: Address, data: MHAddress):
         if not data: return None
 
-        address.set_street(data.address)
-        address.set_locality(data.address2)
-        address.set_city(data.city)
-        address.set_state(data.state)
-        address.set_postal_code(data.zip)
-        address.set_country(data.country)
+        # address.set_street(data.address)
+        # address.set_locality(data.address2)
+        # address.set_city(data.city)
+        # address.set_state(data.state)
+        # address.set_postal_code(data.zip)
+        # address.set_country(data.country)
 
-        return address
+        changed = setObjectAttributes(
+            address, 
+            set_street = data.address,
+            set_locality = data.address2,
+            set_city = data.city,
+            set_state = data.state,
+            set_postal_code = data.zip,
+            set_country = data.country
+        )
+
+        if changed:
+            return address
 
     def modifyPlace(self, place: Place, data: places_lang_data_DTO):
         if not data: return None
@@ -1831,10 +1994,16 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
 
         self.trySetGrampsId(place, data.place_id, PLACE_ID_PFX)
         placeName = PlaceName()
-        placeName.set_value(data.place)
-        place.set_name(placeName)
+        # placeName.set_value(data.place)
 
-        return place
+        changed = setObjectAttributes(
+            placeName, 
+            set_value = data.place
+        )
+
+        if changed:
+            place.set_name(placeName)
+            return place
     #endregion
 
     #region Class Helpers 
@@ -1872,21 +2041,36 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         elif listType == 1:
             person.add_family_handle(familyHandle)
 
+    def clearEmptySubobjects(self, obj):
+        self.clearEmptyAttributes(obj)
+        self.clearEmptyUrls(obj)
+
     def clearEmptyAttributes(self, obj):
         try:
             attrs = obj.get_attribute_list()
             for att in attrs:
-                val = att.get_value()
+                val = att.get_value().strip()
                 type = att.get_type()
-                if not val or isEmptyOrWhitespace(val):
-                    if type == getValFromMap(AttributeType._BASEMAP, AttributeType.ID, 2):
-                        obj.remove_attribute(att)
+                if not val or isEmptyOrWhitespace(val) or val=='None' or type == getValFromMap(AttributeType._BASEMAP, AttributeType.ID, 2):
+                    obj.remove_attribute(att)
+        except:
+            return
+        
+    def clearEmptyUrls(self, obj):
+        try:
+            urls = obj.get_url_list()
+            for url in urls:
+                type = url.get_type()
+                path = url.get_path().strip()
+                # desr = url.get_path() or (not desr or isEmptyOrWhitespace(desr) or desr=='None')
+                if (not path or isEmptyOrWhitespace(path) or path=='None'):
+                    obj.remove_url(url)
         except:
             return
 
     def extract_date(self, data) -> DateDTO:
         dto = self.parse_custom_date(data.date)
-        dateObj = self.handleObject(self.findDate, dto, True)
+        dateObj = self.handleObject(self.findDate, dto, True, True)
 
         return dateObj
 
@@ -1960,14 +2144,21 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
     def createObjectsList(self, list, func=None, *args):
         if not func: func = self.handleObject
 
+        # def do(func, el, *args):
+        #     if isinstance(el, Iterable):
+        #         return func(*el, *args)
+        #     else:
+        #         return func(el, *args)
         def do(func, el, *args):
+            res = None
             if isinstance(el, Iterable):
-                return func(*el, *args)
+                res = func(*el, *args)
             else:
-                return func(el, *args)
+                res = func(el, *args)
+            return res
 
         newlist = [
-            do(func, el, args)
+            do(func, el, *args) 
             for el in list
             if el is not None
         ]
@@ -2123,7 +2314,7 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         
         # If it’s a timespan and not exactly two dates found, return original text
         if is_timespan and len(date_matches) != 2:
-            return DateDTO(quality, modified, value, dateText)
+            return DateDTO(value, quality, modified, dateText)
         
         # Determine the date values if dates were found   
         def dateVal(date_matches):
@@ -2175,7 +2366,7 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         if value:
             dateText = str(value)
         
-        return DateDTO(quality, modified, value, dateText)
+        return DateDTO(value, quality, modified, dateText)
 
     def parse_html(self, html_string):
         html_string = re.sub(r'<\s*br\s*/?>', '\n', html_string, flags=re.IGNORECASE)
@@ -2302,17 +2493,15 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
 
         return obj
 
-    def tryGetHandle(self, obj):
-        try: return obj.get_handle()
-        except: return None
-
-    def getTempObj(self, handle):
+    def getTempObj(self, key, findType=0):
+        pfx, id = key
         for obj, _ in self.compares:
-            objHndl = self.tryGetHandle(obj)
-            # print(f"Obj: {obj}, hndl: {hnd} vs {handle}, EQ? {hnd}")
-            # print(f"hndl: {hnd} vs {handle}, EQ? {hnd}")
-            if objHndl == handle:
-                # print(f"FOUNDED!!!!!!!!!!")
+            if findType == 1:
+                objKey = tryGetGrampsID(obj)
+                key = self.formatId(id, pfx)
+            else:
+                objKey = tryGetHandle(obj)
+            if objKey == key:
                 return obj
         return None
 
@@ -2327,6 +2516,7 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
                 handles = [obj for obj, _ in self.compares]
             else:
                 handles = self.db.method("get_%s_handles", name)()
+            
             for handle in handles:
                 if not handle: continue
 
@@ -2335,9 +2525,11 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
                     if type(obj).__name__.lower() != name: continue
                 else:
                     obj = self.db.method("get_%s_from_handle", name)(handle)
+
                 uid = self.findObjectByAttributes(
                     obj.get_attribute_list(), 
-                    {"type": attType, "value": id.lower()}
+                    {("get_type", "__str__"): attType, "value": id.lower()},
+                    all, True
                 )
                 if uid:
                     return obj
@@ -2355,13 +2547,23 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         obj.set_gramps_id(newId)
         return newId
 
-    def findObjectByAttributes(self, objects, attributes_dict):
-        def lwr(s):
-            if isinstance(s, str):
-                return s.lower()
-            else: return s
+    def findObjectByAttributes(self, objects, attributes_dict, cond=all, lwr=False):
+        def getVal(obj, key):
+            if isinstance(key, tuple):
+                res = None
+                for k in key:
+                    res = getattr(obj, k, foo)()
+                    obj = res
+                return res
+            return getattr(obj, key, None)
+
+        if lwr: 
+            lw = lambda x: tolwr(x)
+        else: lw = lambda x: x
+
         for obj in objects:
-            if all(lwr(getattr(obj, key, None)) == value for key, value in attributes_dict.items()):
+            # print([(lw(getVal(obj, key)), lw(value), lw(getVal(obj, key)) == lw(value)) for key, value in attributes_dict.items()])
+            if cond(lw(getVal(obj, key)) == lw(value) for key, value in attributes_dict.items()):
                 return obj
         return None
     

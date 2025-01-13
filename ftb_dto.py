@@ -20,11 +20,17 @@ class BaseDTO:
         attrsList = list(attrsDict.keys())
         for i in range(len(attrsList)):
             att = attrsList[i]
+            attType = attrsDict.get(att)
+            setval = None
             try:
-                attType = attrsDict.get(att)
-                setattr(self, att, attType(args[i]))
+                if isinstance(args[i], attType):
+                    setval = args[i]
+                else:
+                    setval = attType(args[i])
             except:
-                setattr(self, att, getattr(self, att, None))
+                setval = getattr(self, att, None)
+
+            setattr(self, att, setval)
 
         for key, val in kwargs.items():
             setattr(self, key, val)
@@ -255,8 +261,8 @@ class DateDTO(BaseDTO):
         return f"{self.value}"
 
 class UrlDTO(BaseDTO):
-    path: str
     type: str
+    path: str
     descr: str
     privacy: int
     parent: object
@@ -266,7 +272,7 @@ class UrlDTO(BaseDTO):
 
 class SurnameDTO(BaseDTO):
     surname: str
-    origin: str
+    origin: int
     prefix: str
     parent: object
 
@@ -337,14 +343,14 @@ class AddressDTO(BaseDTO):
     country: str
 
 class AttributeHandle(BaseDTO):
-    name: str = "Attribute"
-    newValue: str = "-"
-    oldValue: str = "-"
+    # name: str = "Attribute"
+    # newValue: str = "-"
+    # oldValue: str = "-"
 
-    # def __init__(self, name="Attribute", newVal="-", oldVal="-"):
-    #     self.name = name
-    #     self.newValue = newVal
-    #     self.oldValue = oldVal
+    def __init__(self, name="Attribute", newVal="-", oldVal="-"):
+        self.name = name
+        self.newValue = newVal
+        self.oldValue = oldVal
 
 class ObjectHandle(BaseDTO):
     # name: str = "Primary Object"
@@ -395,7 +401,6 @@ class CompareDTO():
         if not method:
             method = mthd(self.nonTypicalMethod(name))
 
-        # print(f"\n\n--------\n{method}\n---------\n\n")
         if method:
             return method()
         else:
