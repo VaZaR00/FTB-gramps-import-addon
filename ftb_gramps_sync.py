@@ -45,8 +45,7 @@ TODO:
 1. Translation
 
 Problems:
-1. It cant find some urls, attributes and dups it
-2. It pushes empty attrs and urls
+. Even if object fully exists, it still pushes it to changes, cuz of names and smth other idk
 """
 
 #region Helpers
@@ -466,7 +465,7 @@ class HandleChanges(Page):
 
     def __init__(self, assistant):
         super().__init__(assistant)
-        self.commitChkboxes = []
+        # self.commitChkboxes = []
         self.expanders = []
 
         self.set_border_width(10)
@@ -562,8 +561,8 @@ class HandleChanges(Page):
         fold_all_btn = Gtk.Button(label=MENU_LBL_HDNLCHNG_TABLE_FOLD_ALL)
         fold_all_btn.connect("clicked", self.foldAll)
 
-        unfold_all_btn = Gtk.Button(label=MENU_LBL_HDNLCHNG_TABLE_UNFOLD_ALL)
-        unfold_all_btn.connect("clicked", self.unfoldAll)
+        # unfold_all_btn = Gtk.Button(label=MENU_LBL_HDNLCHNG_TABLE_UNFOLD_ALL)
+        # unfold_all_btn.connect("clicked", self.unfoldAll)
 
         commit_all_button = Gtk.Button(label=MENU_LBL_HDNLCHNG_TABLE_COMMIT_ALL)
         commit_all_button.set_halign(Gtk.Align.END)
@@ -576,7 +575,7 @@ class HandleChanges(Page):
         uncommit_all_button.connect("clicked", partial(self.commit_all, False))
 
         box.pack_start(fold_all_btn, False, False, 0)
-        box.pack_start(unfold_all_btn, False, False, 0)
+        # box.pack_start(unfold_all_btn, False, False, 0)
         box.pack_start(commit_all_button, False, False, 0)
         box.pack_start(uncommit_all_button, False, False, 0)
         self.pack_start(box, False, False, 0)
@@ -589,6 +588,7 @@ class HandleChanges(Page):
 
     def setFoldState(self, state):
         for exp in self.expanders:
+            # exp.emit("activate")
             exp.set_expanded(state)
 
     def create_header_row(self):
@@ -614,6 +614,7 @@ class HandleChanges(Page):
 
     def display_changes(self, objects: list[ObjectHandle]):
         """Display all objects and their changes."""
+        self.objects = objects
         self.loading_lbl.destroy()
         for obj in objects:
             obj_block = self.create_object_block(obj)
@@ -688,9 +689,11 @@ class HandleChanges(Page):
             print(f"ERROR WHILE LOADING NESTED ELEMENTS: {e}")
 
     def commit_all(self, state, widget):
-        for obj, *chks in self.commitChkboxes:
-            for chk in chks:
-                chk.set_active(state)
+        for obj in self.objects:
+            for o in (obj.secondaryObjects + [obj]):
+                o.commited = state
+                for chk in getattr(o, "linkedCheckboxes", []):
+                    chk.set_active(state)
 
     # def linkCheckboxes(self, obj, chkbox):
     #     exist = getFromListByKey(self.commitChkboxes, obj, None, returnAll=True)
@@ -1214,8 +1217,8 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
 
     def addConnectReferences(self, obj, *args, **kwargs):
         self.temp_i = 0
-
-        if not (all(val for key, val in kwargs.items())): return False
+        # print(f"TRY-ADD-CON: {(tuple(kwargs.values()) + args)} = {(all(val for val in (tuple(kwargs.values()) + args)))}")
+        if (all((not val) for val in (tuple(kwargs.values()) + args))): return False
         
         def getv(name, default=[]):
             val = default
@@ -1243,8 +1246,7 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
             place=getv('place', None)
         )
         self.referencesToConnect.append((obj, new))
-
-        # print(f"+++Con: {new}")
+        if isinstance(obj, Event): print(f"ADD-CON: {args} ; {kwargs.items()}; NEW: {new}")
 
         return True
     
@@ -1388,20 +1390,20 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
     def findPerson(self, id):
         if not id: return None, self.modifyPerson, Person, None
         mainData, dataSets = self.fetchData((id, individual_main_data_DTO), (id, individual_data_set_DTO, False))
-        person = self.findByIdsAttributes(mainData.guid, "person")
+        person = self.findByIdsAttributes(mainData.guid.lower(), "person")
         langData = [self.fetchData(((dataSet.individual_data_set_id, ), individual_lang_data_DTO)) for dataSet in dataSets]
         langData = [el for el in langData if el is not None]
         return person, self.modifyPerson, Person, (mainData, langData)
 
     def findFamily(self, id):
         data = self.fetchData((id, family_main_data_DTO))
-        family = self.findByIdsAttributes(data.guid, "family")
+        family = self.findByIdsAttributes(data.guid.lower(), "family")
         return family, self.modifyFamily, Family, data
 
     def findEvent(self, data):
         if not data: return None, self.modifyPerson, Person, None
         mainData, langData = data
-        id = mainData.guid
+        id = mainData.guid.lower()
         if isinstance(mainData, individual_fact_main_data_DTO):
             eventParentType = PERSON_ID_PFX
         else:
