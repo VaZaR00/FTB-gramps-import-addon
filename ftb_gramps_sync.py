@@ -4,6 +4,7 @@
 #
 #------------------------------------------------------------------------
 from functools import partial
+import traceback
 import mimetypes
 import copy
 import time
@@ -35,8 +36,8 @@ from gramps.gui.plug.tool import BatchTool, ToolOptions
 from gramps.gen.config import config
 from gramps.gen.lib.refbase import RefBase
 
-# DEV_TEST_BD_PATH = 'C:/Users/Sasha/Documents/MyHeritage/1st_1'
 DEV_TEST_BD_PATH = ''
+# DEV_TEST_BD_PATH = 'C:/Users/Sasha/Documents/MyHeritage/1st_1'
 
 CHANGES_COMMIT_MAIN_CLASSES = (Person, Family, Repository, Media, Source, Place)
 
@@ -141,7 +142,7 @@ def tolwr(s):
         return s.lower()
     else: return s
 
-def foo(*args): pass
+def foo(*args, **kwargs): pass
 
 def getGetter(c):
     custom = {}
@@ -166,6 +167,11 @@ def tryGetHandle(obj):
 def tryGetGrampsID(obj):
     try: return obj.get_gramps_id()
     except: return None
+
+def format_timestamp(ts):
+    if ts > 10**10:  
+        ts /= 1000  
+    return datetime.fromtimestamp(ts).strftime('%Y-%m-%d %H:%M:%S')
 
 class ToConnectReferenceObjects(BaseDTO):
     # obj: object = None
@@ -501,7 +507,8 @@ class HandleChanges(Page):
 
         isMainNested = (clas in CHANGES_COMMIT_MAIN_CLASSES) and level > 0
 
-        name = f"{obj.name}: {obj.attributes[0].newValue}"
+        # name = f"{obj.name}: {obj.attributes[0].newValue}"
+        name = f"{obj.name}: {obj.showName}"
 
         # Main frame for the block with rounded edges
         frame = Gtk.Frame()
@@ -979,7 +986,7 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         try:
             new = modify(obj, data)
         except Exception as e:
-            self.log(HINT_HANDLEOBJ_ERROR.format(name, obj, data, e))
+            self.log(HINT_HANDLEOBJ_ERROR.format(name, obj, data, traceback.format_exc()))
             self.succesfuly = False
 
         if not new:
@@ -1217,7 +1224,7 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
 
     def addConnectReferences(self, obj, *args, **kwargs):
         self.temp_i = 0
-        # print(f"TRY-ADD-CON: {(tuple(kwargs.values()) + args)} = {(all(val for val in (tuple(kwargs.values()) + args)))}")
+        
         if (all((not val) for val in (tuple(kwargs.values()) + args))): return False
         
         def getv(name, default=[]):
@@ -1246,7 +1253,6 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
             place=getv('place', None)
         )
         self.referencesToConnect.append((obj, new))
-        if isinstance(obj, Event): print(f"ADD-CON: {args} ; {kwargs.items()}; NEW: {new}")
 
         return True
     
@@ -1346,7 +1352,7 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
                         resList.append(func(el))
                 else:
                     resList.append(func(att))
-            except Exception as e:
+            except:
                 pass
 
         return resList
@@ -1362,7 +1368,7 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
                 return ((*mainKey, *keys), filtStr)
             else: return (mainKey, "")
         except Exception as e:
-            self.log(f"ERROR while getting filter {e}")
+            self.log(f"ERROR while getting filter {traceback.format_exc()}")
             return (mainKey, "")
     
     def checkFilter(self, data):
@@ -1418,9 +1424,11 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
 
     def findName(self, data: individual_lang_data_DTO):
         name = None
-        if self.doReplace(Name):
-            parent = getattr(data, "parent", None)
-            if parent:
+
+        parent = getattr(data, "parent", None)
+        if parent:
+            setattr(parent, "last_name", data.last_name)
+            if self.doReplace(Name):
                 names = [parent.get_primary_name()] + parent.get_alternate_names()
                 name = self.findObjectByAttributes(
                     names,
@@ -1761,6 +1769,14 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         # att.set_type(data.type)
         # att.set_value(data.value)
 
+        # Convert timestamp to date
+        if data.type in [CRT, UPD]:
+            try:
+                dateform = format_timestamp(int(data.value))
+                data.value = dateform
+            except:
+                pass
+
         changed = setObjectAttributes(
             att, 
             set_privacy = data.privacy,
@@ -2090,10 +2106,8 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
             if ET_REL_PRFX in token:
                 token = token.replace(ET_REL_PRFX, "", 1)
 
-        def getET(key):
-            return getValFromMap(EventType._DATAMAP, key, 2)
-        def getAT(key):
-            return getValFromMap(EventType._DATAMAP, key, 2)
+        getET = lambda key: getValFromMap(EventType._DATAMAP, key, 2)
+        getAT = lambda key: getValFromMap(EventType._DATAMAP, key, 2)
 
         event_mapping = {
             DEAT_TOKEN: getET(EventType.DEATH),
@@ -2357,11 +2371,11 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         try:
             value = dateVal(date_matches)
         except Exception as e:
-            self.log(e)
+            self.log(traceback.format_exc())
             try:
                 value = dateVal([date_matches[0]])
             except Exception as e:
-                self.log(e)
+                self.log(traceback.format_exc())
                 value = None
 
         # If dates were parsed, update dateText with formatted date, else leave as original text
@@ -2672,6 +2686,7 @@ class FTBDatabaseHandler:
     def fetchDbData(self, params: list, table_name: str, key: str = None) -> list:
         columns = ", ".join(params)
         if key:
+            key = str(key)
             query = f"SELECT {columns} FROM {table_name} WHERE id = %s"
             self.cursor.execute(query, (key,))
         else:

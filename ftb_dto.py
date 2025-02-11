@@ -1,11 +1,19 @@
 from gramps.gen.lib import *
-
+from ftb_gramps_sync import *
+from datetime import datetime
 # class Date:
 #     pass
 # class StyledText:
 #     pass
 # class PlaceName:
 #     pass
+
+#region Helpers
+def format_timestamp(ts):
+    if ts > 10**10:  
+        ts /= 1000  
+    return datetime.fromtimestamp(ts).strftime('%Y-%m-%d %H:%M:%S')
+#endregion
 
 class BaseDTO:
     def __repr__(self, obj=None): 
@@ -367,6 +375,20 @@ class ObjectHandle(BaseDTO):
         self.secondaryObjects = secondaryObjects
         self.objRef = objRef
         self.sortval = sortval
+        self.showName = self.getShowName()
+
+    def getShowName(self):
+        if self.attributes:
+            mainVal = self.attributes[0].newValue
+        else:
+            mainVal = ""
+
+        if type(self.objRef) == Person:
+            lastname = getattr(self.objRef, "last_name", "")
+            if lastname:
+                return f"{lastname} {mainVal}"
+
+        return mainVal
 
     # def __repr__(self, obj=None):
     #     return f'{self.objRef}'
@@ -386,15 +408,15 @@ class CompareDTO():
             keys.remove("parent")
 
         for key in keys:
-            val = self.getMethod(obj, key)
-            val = self.getObjectReprValue(val)
+            val = self.getObjectReprValue(self.getMethod(obj, key))
             attDict[key] = str(val)
+
+        # self.valueRepr(dto, attDict)
 
         return attDict
     
     def getMethod(self, obj, name):
-        def mthd(s):
-            return BaseDTO.method(obj, s)
+        mthd = lambda s: BaseDTO.method(obj, s)
 
         methodName = "get_" + name
         method = mthd(methodName)
@@ -424,3 +446,13 @@ class CompareDTO():
             return obj.get_first_name()
         else:
             return obj
+        
+    def valueRepr(self, dto, attDict):
+        if dto == AttributeDTO:
+            fff = attDict["type"] in [CRT, UPD]
+            if attDict["type"] in [CRT, UPD]:
+                try:
+                    dateform = format_timestamp(int(attDict["value"]))
+                    attDict["value"] = dateform
+                except Exception as e:
+                    pass
