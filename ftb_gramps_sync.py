@@ -1680,10 +1680,13 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         date = self.extract_date(mainData)
         description = langData.header
         causeOfDeat = getattr(langData, "cause_of_death", None)
+
+        place = self.handleObject(self.findPlace, mainData.place_id)
+
         if not isEmptyOrWhitespace(causeOfDeat) and causeOfDeat: 
             description = description + f" {CAUSE_DEAT}: " + causeOfDeat
-        
-        place = self.handleObject(self.findPlace, mainData.place_id)
+        if place: 
+            description = description + f" {EVENT_PLACE}: " + place.get_name()
         
         media = self.formatFetchData(media_item_to_item_connection_DTO, mainData.token_on_item_id, self.findMedia)
         newNotes = self.getNotes(mainData.token_on_item_id)
