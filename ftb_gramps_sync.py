@@ -1686,7 +1686,7 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         if not isEmptyOrWhitespace(causeOfDeat) and causeOfDeat: 
             description = description + f" {CAUSE_DEAT}: " + causeOfDeat
         if place: 
-            description = description + f" {EVENT_PLACE}: " + place.get_name()
+            description = description + f" {EVENT_PLACE}: " + place.get_name().get_value()
         
         media = self.formatFetchData(media_item_to_item_connection_DTO, mainData.token_on_item_id, self.findMedia)
         newNotes = self.getNotes(mainData.token_on_item_id)
@@ -2096,9 +2096,14 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         return dateObj
 
     def convert_gender(self, gender):
-        if gender == 'F': return 0
-        elif gender == 'M': return 1
-        else: return 2
+        genderTokens = {
+            'F': 0,
+            'M': 1,
+            'U': 2
+        }
+        gender = gender.strip().upper()
+
+        return genderTokens.get(gender, 2)
 
     def defineEventType(self, token: str, factType: str):
         if factType:
@@ -2110,7 +2115,7 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
                 token = token.replace(ET_REL_PRFX, "", 1)
 
         getET = lambda key: getValFromMap(EventType._DATAMAP, key, 2)
-        getAT = lambda key: getValFromMap(EventType._DATAMAP, key, 2)
+        getAT = lambda key: getValFromMap(AttributeType._DATAMAP, key, 2)
 
         event_mapping = {
             DEAT_TOKEN: getET(EventType.DEATH),
@@ -2397,6 +2402,12 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         if isinstance(id, tuple):
             id = id[0]
         form = self.prefixesDict.get(typeObj, "")
+        if isinstance(id, str):
+            if id.isdigit():
+                id = int(id)
+            else:
+                id = int("".join(re.findall(r"\d+", id)))
+
         return form % id
     
     def find_photos_folder(self):
@@ -2587,11 +2598,8 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         return None
     
     def getPrefixesFromConfig(self):
-        def form(name):
-            key = f"preferences.{name}prefix"
-            return config.get(key)
-        def pfx(form):
-            return form.split('%')[0]
+        form = lambda name: config.get(f"preferences.{name}prefix")
+        pfx = lambda form: form.split('%')[0]
 
         MEDIA_ID_FORM = form("o")
         PERSON_ID_FORM = form("i")
