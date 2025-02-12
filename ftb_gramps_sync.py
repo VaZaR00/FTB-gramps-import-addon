@@ -36,8 +36,8 @@ from gramps.gui.plug.tool import BatchTool, ToolOptions
 from gramps.gen.config import config
 from gramps.gen.lib.refbase import RefBase
 
-DEV_TEST_BD_PATH = ''
-# DEV_TEST_BD_PATH = 'C:/Users/Sasha/Documents/MyHeritage/1st_1'
+DEV_TEST_DB_PATH = ''
+# DEV_TEST_DB_PATH = 'C:/Users/Sasha/Documents/MyHeritage/1st_1'
 
 CHANGES_COMMIT_MAIN_CLASSES = (Person, Family, Repository, Media, Source, Place)
 
@@ -403,7 +403,7 @@ class FileSelectorPage(Page):
         self.selected_file_path = None
         self._complete = False
 
-        if DEV_TEST_BD_PATH:
+        if DEV_TEST_DB_PATH:
             self.set_complete()
 
         self.show_all()
@@ -755,7 +755,7 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         self.db = dbstate.db # Access to Gramps DB object
         self.dbHandler = None # Access to FTB SQL db
         self.connectedToFTBdb = False
-        self.path = DEV_TEST_BD_PATH # File path chosen by user
+        self.path = DEV_TEST_DB_PATH # File path chosen by user
         self.logs = []  
         self.toCommit = [] 
         self.compares = []
@@ -767,7 +767,7 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         self._doHandling = True
         self._doFilter = False
 
-        if DEV_TEST_BD_PATH:
+        if DEV_TEST_DB_PATH:
             self.tryConnectSQLdb(self.path)
 
         self.getConfigs()
@@ -2175,7 +2175,7 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         #         return func(el, *args)
         def do(func, el, *args):
             res = None
-            if isinstance(el, Iterable):
+            if isinstance(el, Iterable) and not isinstance(el, str):
                 res = func(*el, *args)
             else:
                 res = func(el, *args)
@@ -2399,16 +2399,27 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         return clean_text.strip()
    
     def formatId(self, id, typeObj=""):
-        if isinstance(id, tuple):
+        if isinstance(id, Iterable) and not isinstance(id, str):
             id = id[0]
+        temp = id
         form = self.prefixesDict.get(typeObj, "")
-        if isinstance(id, str):
-            if id.isdigit():
+        try:
+            if isinstance(id, str):
+                if id.isdigit():
+                    id = int(id)
+                else:
+                    id = int("".join(re.findall(r"\d+", id)))
+            
+            if not isinstance(id, int):
                 id = int(id)
-            else:
-                id = int("".join(re.findall(r"\d+", id)))
 
-        return form % id
+            res = form % id
+
+            return res
+        
+        except Exception as e:
+            self.log(f"ERROR while formating ID = {temp} (origin value: {id}, format: {form}). Error message: {e}")
+            return ""
     
     def find_photos_folder(self):
         path = None
