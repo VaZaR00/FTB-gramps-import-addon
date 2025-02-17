@@ -71,6 +71,7 @@ HINT_HANDLEOBJ_EXIST = _("Object '{}' founded in Gramps by key '{}': {}")
 HINT_HANDLEOBJ_DONTEXISTS = _("Object '{}' not found in Gramps by key '{}'. New created.")
 
 HINT_GETMEDIA_FLDRNTFND = _("Media folder not found in {}.")
+HINT_GETMEDIA_NOMEDIAFOLDER = _("No media folder")
 HINT_GETMEDIA_FILEIDNTFND = _("File with ID={} not found.")
 HINT_GETMEDIA_ERROR = _("\nERROR! while working with file {}: {} \n")
 HINT_COPYMEDIA_NEW_FOLDER = _("User media folder ({}) does not exists so new folder created")

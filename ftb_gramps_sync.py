@@ -50,6 +50,11 @@ Problems:
 """
 
 #region Helpers
+def remove_suffix(s: str, suffix: str) -> str:
+    if s.endswith(suffix):
+        return s[: -len(suffix)]
+    return s
+
 def isEmptyOrWhitespace(s) -> bool:
     return not s or s.strip() == ""
 
@@ -155,7 +160,6 @@ def setObjectAttributes(obj, **kwargs):
             oldVal = getattr(obj, getGetter(key), foo)()
             if oldVal != val:
                 changed = True
-                # print(f"---SET: {val} and {oldVal}")
                 getattr(obj, key, foo)(val)
 
     return changed
@@ -420,6 +424,7 @@ class FileSelectorPage(Page):
         """File selector handler."""
         self.show_folder_error(False)
         path = widget.get_filename() 
+        path = remove_suffix(path, FTB_DB_DIR_NAME.title())
         self.selected_file_path = path
         self.file_path_label.set_text(MENU_LBL_PATH_SELECTED.format(path))
         
@@ -1452,15 +1457,15 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
     def findAttribute(self, data: AttributeDTO):
         attribute = None
         attClass = Attribute
-        if self.doReplace(attClass):
-            parent = getattr(data, "parent", None)
-            if parent:
+        parent = getattr(data, "parent", None)
+        if parent:
+            if self.doReplace(attClass):
                 attribute = self.findObjectByAttributes(
                     parent.get_attribute_list(),
                     {"type": data.type, "value": data.value}
                 )
-                if isinstance(parent, (Citation, Source)):
-                    attClass = SrcAttribute
+            if isinstance(parent, (Citation, Source)):
+                attClass = SrcAttribute
 
         return attribute, self.modifyAttribute, attClass, data
 
@@ -1772,14 +1777,6 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         # att.set_type(data.type)
         # att.set_value(data.value)
 
-        # Convert timestamp to date
-        if data.type in [CRT, UPD]:
-            try:
-                dateform = format_timestamp(int(data.value))
-                data.value = dateform
-            except:
-                pass
-
         changed = setObjectAttributes(
             att, 
             set_privacy = data.privacy,
@@ -1833,7 +1830,7 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         # media.set_date_object(self.extract_date(mainData))
         # media.set_description(langData.title)
         # deal with mime types
-        value = mimetypes.guess_type(media.get_path())
+        value = mimetypes.guess_type(path)
         mime = None
         if value and value[0]:  # found from filename
             mime = value[0]
@@ -2341,25 +2338,25 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
             return DateDTO(value, quality, modified, dateText)
         
         # Determine the date values if dates were found   
+        monthIndex = {
+            "JAN": "01",
+            "FEB": "02",
+            "MAR": "03",
+            "APR": "04",
+            "MAY": "05",
+            "JUN": "06",
+            "JUL": "07",
+            "AUG": "08",
+            "SEP": "09",
+            "OCT": "10",
+            "NOV": "11",
+            "DEC": "12"
+        }
         def dateVal(date_matches):
             def defmonth(mon):
-                monthIndex = {
-                    "JAN": "01",
-                    "FEB": "02",
-                    "MAR": "03",
-                    "APR": "04",
-                    "MAY": "05",
-                    "JUN": "06",
-                    "JUL": "07",
-                    "AUG": "08",
-                    "SEP": "09",
-                    "OCT": "10",
-                    "NOV": "11",
-                    "DEC": "12"
-                }
-
-                if mon:
-                    return datetime.strptime(monthIndex.get(mon), "%m").month
+                monthInt = monthIndex.get(mon)
+                if monthInt:
+                    return datetime.strptime(monthInt, "%m").month
                 else:
                     return 0
                 
@@ -2440,6 +2437,9 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
             if os.path.isdir(upper_folder):
                 path = upper_folder
         
+        if not path:
+            self.log(HINT_GETMEDIA_FLDRNTFND.format(self.path))
+
         self.photosPath = path
         return path
 
@@ -2447,7 +2447,7 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         photos_folder = self.photosPath
         
         if not photos_folder:
-            self.log(HINT_GETMEDIA_FLDRNTFND.format(self.path))
+            self.log(HINT_GETMEDIA_NOMEDIAFOLDER)
             return None
         
         file_prefix = f"P{photo_id}_"
@@ -2609,7 +2609,14 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         return None
     
     def getPrefixesFromConfig(self):
-        form = lambda name: config.get(f"preferences.{name}prefix")
+        def form(name): 
+            default = f"{name.upper()}%04d"
+            ret = config.get(f"preferences.{name}prefix")
+            if ret:
+                return ret
+            else:
+                return default
+        
         pfx = lambda form: form.split('%')[0]
 
         MEDIA_ID_FORM = form("o")

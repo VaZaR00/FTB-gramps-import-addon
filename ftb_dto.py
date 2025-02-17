@@ -1,6 +1,7 @@
 from gramps.gen.lib import *
 from ftb_gramps_sync import *
 from datetime import datetime
+from constants import *
 # class Date:
 #     pass
 # class StyledText:
@@ -249,6 +250,17 @@ class AttributeDTO(BaseDTO):
     value: str
     privacy: int
     parent: object
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        # Convert timestamp to date
+        if self.type in [CRT, UPD]:
+            try:
+                dateform = format_timestamp(int(self.value))
+                self.value = dateform
+            except:
+                pass
 
     def hintKey(self):
         return f"{self.type}: {self.value}"
