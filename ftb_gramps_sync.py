@@ -762,6 +762,7 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         self.connectedToFTBdb = False
         self.path = DEV_TEST_DB_PATH # File path chosen by user
         self.logs = []  
+        self.forLog = []  
         self.toCommit = [] 
         self.compares = []
         self.referencesToConnect: list[ToConnectReferenceObjects] = []
@@ -826,6 +827,7 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         if page == self.progress_page:
             if self.connectedToFTBdb:
                 self.log(HINT_PROCCESING)
+                self.loadLog()
                 GLib.idle_add(self.start_processing)
                 self.progress_page.set_complete()
             else:
@@ -893,6 +895,18 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         buffer.insert(end_iter, f"{s}\n")
         print(s)
     
+    def addToLog(self, s):
+        self.forLog.append(s)
+
+    def loadLog(self):
+        if not self.forLog: return 
+
+        self.log("------ WARNINGS ------")
+
+        for s in self.forLog:
+            self.log(s)
+
+        self.log("----------------------")
     #endregion
     #
     #------------------------------------------------------------------------
@@ -927,6 +941,9 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         self.filterOptions = FilterOptions()
 
         self.userMediaFolder = self.db.get_mediapath()
+        if not self.userMediaFolder:
+            self.addToLog(HINT_GETMEDIA_NOMEDIAFOLDER)
+
         self.getPrefixesFromConfig()
 
     def start_processing(self):
@@ -2447,7 +2464,6 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         photos_folder = self.photosPath
         
         if not photos_folder:
-            self.log(HINT_GETMEDIA_NOMEDIAFOLDER)
             return None
         
         file_prefix = f"P{photo_id}_"
@@ -2477,17 +2493,17 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         
         # try copy media else return its initial path
         resultFile = None
-        if self._doCopyMedia:
+        if self._doCopyMedia and self.userMediaFolder:
             resultFile = self.copyMedia(highest_resolution_file)
+
         if not resultFile:
             resultFile = highest_resolution_file
         
         return resultFile
 
     def copyMedia(self, oldPath):
+        mediaFolder = self.userMediaFolder
         try:
-            mediaFolder = self.userMediaFolder
-
             if not os.path.exists(mediaFolder):
                 os.makedirs(mediaFolder)
                 self.log(HINT_COPYMEDIA_NEW_FOLDER.format(mediaFolder))
@@ -2498,7 +2514,7 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
             shutil.copy2(oldPath, newPath)
             return newPath
         except Exception as e:
-            self.log(HINT_COPYMEDIA_ERROR.format(e))
+            self.log(HINT_COPYMEDIA_ERROR.format(oldPath, mediaFolder, e))
             return None
 
     def formatFetchData(self, dto, arg, findFunc):
