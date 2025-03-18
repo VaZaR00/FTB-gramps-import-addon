@@ -17,6 +17,8 @@ def format_timestamp(ts):
 #endregion
 
 class BaseDTO:
+    main_id: int
+
     def __repr__(self, obj=None): 
         """Unified class representation"""
         if not obj: obj = self
@@ -41,10 +43,13 @@ class BaseDTO:
 
             setattr(self, att, setval)
 
+            if isinstance(setval, int) and "_id" in att and not setval:
+                self.main_id = setval
+
         for key, val in kwargs.items():
             setattr(self, key, val)
-
-        # print(self)
+            if isinstance(setval, int) and ("_id" in att) and not setval:
+                self.main_id = setval
 
     def hintKey(self):
         for key in self.__annotations__:    
@@ -82,10 +87,12 @@ class individual_main_data_DTO(BaseDTO):
 
 class individual_data_set_DTO(BaseDTO):
     key = "individual_id"
+    individual_id: int
     individual_data_set_id: int
 
 class individual_lang_data_DTO(BaseDTO):
     key = "individual_data_set_id"
+    individual_data_set_id: int
     first_name: str
     last_name: str
     prefix: str
@@ -99,6 +106,7 @@ class individual_lang_data_DTO(BaseDTO):
 
 class individual_fact_main_data_DTO(BaseDTO):
     key = "individual_id"
+    individual_id: int
     individual_fact_id: int
     token: str
     fact_type: str
@@ -114,6 +122,7 @@ class individual_fact_main_data_DTO(BaseDTO):
 
 class individual_fact_lang_data_DTO(BaseDTO):
     key = "individual_fact_id"
+    individual_fact_id: int
     header: str
     cause_of_death: str
 
@@ -132,10 +141,12 @@ class family_main_data_DTO(BaseDTO):
 
 class family_fact_lang_data_DTO(BaseDTO):
     key = "family_fact_id"
+    family_fact_id: int
     header: str
 
 class family_fact_main_data_DTO(BaseDTO):
     key = "family_id"
+    family_id: int
     family_fact_id: int
     token: str
     fact_type: str
@@ -151,6 +162,7 @@ class family_fact_main_data_DTO(BaseDTO):
 
 class media_item_to_item_connection_DTO(BaseDTO):
     key = "external_token_on_item_id"
+    external_token_on_item_id: int
     media_item_id: int
 
 class media_item_main_data_DTO(BaseDTO):
@@ -167,11 +179,13 @@ class media_item_main_data_DTO(BaseDTO):
 
 class media_item_lang_data_DTO(BaseDTO):
     key = "media_item_id"
+    media_item_id: int
     title: str
     description: str
 
 class citation_main_data_DTO(BaseDTO):
     key = "external_token_on_item_id"
+    external_token_on_item_id: int
     citation_id: int
     source_id: int
     page: str
@@ -184,6 +198,7 @@ class citation_main_data_DTO(BaseDTO):
 
 class citation_lang_data_DTO(BaseDTO):
     key = "citation_id"
+    citation_id: int
     description: str
 
 class source_main_data_DTO(BaseDTO):
@@ -195,6 +210,7 @@ class source_main_data_DTO(BaseDTO):
 
 class source_lang_data_DTO(BaseDTO):
     key = "source_id"
+    source_id: int
     title: str
     abbreviation: str
     author: str
@@ -214,6 +230,7 @@ class repository_main_data_DTO(BaseDTO):
 
 class repository_lang_data_DTO(BaseDTO):
     key = "repository_id"
+    repository_id: int
     name: str
     address: str
 
@@ -224,6 +241,7 @@ class places_lang_data_DTO(BaseDTO):
 
 class note_to_item_connection_DTO(BaseDTO):
     key = "external_token_on_item_id"
+    external_token_on_item_id: int
     note_id: int
 
 class note_main_data_DTO(BaseDTO):
@@ -234,6 +252,7 @@ class note_main_data_DTO(BaseDTO):
 
 class note_lang_data_DTO(BaseDTO):
     key = "note_id"
+    note_id: int
     note_text: str
 
 class MHAddress(BaseDTO):

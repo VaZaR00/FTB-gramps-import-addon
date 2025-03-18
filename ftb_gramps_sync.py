@@ -772,6 +772,30 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         self._doCopyMedia = False
         self._doHandling = True
         self._doFilter = False
+        self.cache = {
+            "individual_main_data_DTO": dict(),
+            "individual_data_set_DTO": dict(),
+            "individual_lang_data_DTO": dict(),
+            "individual_fact_main_data_DTO": dict(),
+            "individual_fact_lang_data_DTO": dict(),
+            "family_individual_connection_DTO": dict(),
+            "family_main_data_DTO": dict(),
+            "family_fact_lang_data_DTO": dict(),
+            "family_fact_main_data_DTO": dict(),
+            "media_item_to_item_connection_DTO": dict(),
+            "media_item_main_data_DTO": dict(),
+            "media_item_lang_data_DTO": dict(),
+            "citation_main_data_DTO": dict(),
+            "citation_lang_data_DTO": dict(),
+            "source_main_data_DTO": dict(),
+            "source_lang_data_DTO": dict(),
+            "repository_main_data_DTO": dict(),
+            "repository_lang_data_DTO": dict(),
+            "places_lang_data_DTO": dict(),
+            "note_to_item_connection_DTO": dict(),
+            "note_main_data_DTO": dict(),
+            "note_lang_data_DTO": dict(),
+        }
 
         if DEV_TEST_DB_PATH:
             self.tryConnectSQLdb(self.path)
@@ -962,6 +986,7 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         self.find_photos_folder()
 
         allPersonsIds = self.dbHandler.fetchDbData(["individual_id"], "individual_main_data")
+        self.setCache()
         # allFamiliesIds = self.dbHandler.fetchDbData(["family_id"], "family_main_data")
 
         for id in allPersonsIds:
@@ -1095,8 +1120,15 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         return events, attributes, urls, addresses, notes
 
     def fetchData(self, *args: tuple):
-        if len(args) == 1: return self.dbHandler.fetchDbDataDto(*(args[0]))
-        return tuple(self.dbHandler.fetchDbDataDto(*arg) for arg in args)
+        def do(x):
+            cache = self.getFromCache(x)
+            if cache: return cache
+            return self.dbHandler.fetchDbDataDto(*x)
+        
+        if len(args) == 1: 
+            return do(args[0])
+        
+        return tuple(do(arg) for arg in args)
 
     def grampsDbMethod(self, obj, name, command="commit_%s"):
         method = self.db.method(command, name)
@@ -1412,6 +1444,24 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
             result = data.last_update > opts.upd_stamp
 
         return result
+    
+    #region CACHE
+    def getFromCache(self, args):
+        # args - (id, DTO, isList)
+        if not args: return None
+        return self.cache.get(args[1].__name__, dict()).get(args[0], None)
+
+    def saveToCache(self, data: BaseDTO):
+        if not data: return
+        self.cache[data.__name__][data.main_id] = data
+
+    def setCache(self):
+        for key in self.cache.keys():
+            allData = self.dbHandler.fetchDbData(list(key.__annotations__.keys()), key)
+            for data in allData:
+                self.saveToCache(data)
+    #endregion
+
     #endregion
 
     #region Find objects in gramps
@@ -2728,7 +2778,7 @@ class FTBDatabaseHandler:
             print(f"Error while executing query: {e}")
             return None
 
-    def fetchDbData(self, params: list, table_name: str, key: str = None) -> list:
+    def fetchDbData(self, params: list = list('*'), table_name: str = 'N', key: str = None) -> list:
         columns = ", ".join(params)
         if key:
             key = str(key)
