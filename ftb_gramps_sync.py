@@ -136,6 +136,12 @@ def classSortVal(clsname):
     }
     return values.get(clsname, ord(clsname[0]))
 
+def sortObjectsHandles(objs):
+    order = ["person", "family", "event", "media"]
+    priority = {name: i for i, name in enumerate(order)}
+
+    return sorted(objs, key=lambda obj: priority.get(obj.__class__.__name__, ord(obj.__class__.__name__[0])))
+
 def toTuple(v):
     if isinstance(v, tuple):
         return v
@@ -773,28 +779,28 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         self._doHandling = True
         self._doFilter = False
         self.cache = {
-            "individual_main_data_DTO": dict(),
-            "individual_data_set_DTO": dict(),
-            "individual_lang_data_DTO": dict(),
-            "individual_fact_main_data_DTO": dict(),
-            "individual_fact_lang_data_DTO": dict(),
-            "family_individual_connection_DTO": dict(),
-            "family_main_data_DTO": dict(),
-            "family_fact_lang_data_DTO": dict(),
-            "family_fact_main_data_DTO": dict(),
-            "media_item_to_item_connection_DTO": dict(),
-            "media_item_main_data_DTO": dict(),
-            "media_item_lang_data_DTO": dict(),
-            "citation_main_data_DTO": dict(),
-            "citation_lang_data_DTO": dict(),
-            "source_main_data_DTO": dict(),
-            "source_lang_data_DTO": dict(),
-            "repository_main_data_DTO": dict(),
-            "repository_lang_data_DTO": dict(),
-            "places_lang_data_DTO": dict(),
-            "note_to_item_connection_DTO": dict(),
-            "note_main_data_DTO": dict(),
-            "note_lang_data_DTO": dict(),
+            individual_main_data_DTO: dict(),
+            individual_data_set_DTO: dict(),
+            individual_lang_data_DTO: dict(),
+            individual_fact_main_data_DTO: dict(),
+            individual_fact_lang_data_DTO: dict(),
+            family_individual_connection_DTO: dict(),
+            family_main_data_DTO: dict(),
+            family_fact_lang_data_DTO: dict(),
+            family_fact_main_data_DTO: dict(),
+            media_item_to_item_connection_DTO: dict(),
+            media_item_main_data_DTO: dict(),
+            media_item_lang_data_DTO: dict(),
+            citation_main_data_DTO: dict(),
+            citation_lang_data_DTO: dict(),
+            source_main_data_DTO: dict(),
+            source_lang_data_DTO: dict(),
+            repository_main_data_DTO: dict(),
+            repository_lang_data_DTO: dict(),
+            places_lang_data_DTO: dict(),
+            note_to_item_connection_DTO: dict(),
+            note_main_data_DTO: dict(),
+            note_lang_data_DTO: dict(),
         }
 
         if DEV_TEST_DB_PATH:
@@ -1207,7 +1213,10 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
                 if obj:
                     objects.append(obj)
 
-        objects.sort(key=lambda x: x.sortval)
+        # objects.sort(key=lambda x: x.sortval)
+
+        objects = sortObjectsHandles(objects)
+
         return objects
     
     def createObjectHandle(self, new, old):
@@ -1225,7 +1234,9 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         attHandlesList = [AttributeHandle(key, val, attrsOld.get(key, None)) for key, val in attrsNew.items()]
         func = lambda obj, self: self.createObjectHandle(obj, self.getFromCompareList(obj, None))
         secondaryObjs = createCleanList(self.getSecondaryObjects(new), func, self)
-        secondaryObjs.sort(key=lambda x: x.sortval)
+        # secondaryObjs.sort(key=lambda x: x.sortval)
+
+        secondaryObjs = sortObjectsHandles(secondaryObjs)
 
         res = ObjectHandle(
             clsName(new).title(),
@@ -1449,17 +1460,20 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
     def getFromCache(self, args):
         # args - (id, DTO, isList)
         if not args: return None
-        return self.cache.get(args[1].__name__, dict()).get(args[0], None)
+        return self.cache.get(args[1], dict()).get(args[0], None)
 
     def saveToCache(self, data: BaseDTO):
         if not data: return
-        self.cache[data.__name__][data.main_id] = data
+        self.cache[type(data)][getattr(data, "main_id", -1)] = data
 
     def setCache(self):
-        for key in self.cache.keys():
-            allData = self.dbHandler.fetchDbData(list(key.__annotations__.keys()), key)
-            for data in allData:
-                self.saveToCache(data)
+        for keyClass in self.cache.keys():
+            allData = self.dbHandler.fetchDbDataDto(None, keyClass, hasCondition=False, oneRow=False)
+            # print(f"SETTING CACHE FOR {keyClass}, {allData}")
+            if allData:
+                for data in allData:
+                    if data:
+                        self.saveToCache(data)
     #endregion
 
     #endregion
@@ -2258,6 +2272,7 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         return StyledText(self.parse_html(text))
 
     def removeControlChars(self, s):
+        if not s: return ""
         return ''.join(char for char in s if ord(char) > 31)
 
     def parse_address(self, data: bytes) -> Optional[MHAddress]:
@@ -2752,14 +2767,17 @@ class FTBDatabaseHandler:
                         return os.path.join(dirpath, filename)
         return None
 
-    def fetchDbDataDto(self, key, dtoClass, oneRow=True, query=None, keysStr=None):
+    def fetchDbDataDto(self, key, dtoClass, oneRow=True, query=None, keysStr=None, hasCondition=True):
         if query is None:
-            query = dtoClass.query(keysStr)
+            query = dtoClass.query(keysStr, hasCondition)
             
-        key = toTuple(key)
-
         try:
-            self.cursor.execute(query, key)
+            if key:
+                key = toTuple(key)
+                self.cursor.execute(query, key)
+            else:
+                self.cursor.execute(query)
+
             if oneRow:
                 rows = self.cursor.fetchone()
             else:
@@ -2775,7 +2793,7 @@ class FTBDatabaseHandler:
                 return None
 
         except sqlite3.Error as e:
-            print(f"Error while executing query: {e}")
+            print(f"Error while executing query: {e}, {traceback.format_exc()}")
             return None
 
     def fetchDbData(self, params: list = list('*'), table_name: str = 'N', key: str = None) -> list:

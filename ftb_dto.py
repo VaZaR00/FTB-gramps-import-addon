@@ -56,14 +56,16 @@ class BaseDTO:
             return f"{getattr(self, key)}"
 
     @classmethod
-    def query(cls, keysStr=None):
+    def query(cls, keysStr=None, hasCondition=True):
         attrs = ", ".join(cls.__annotations__.keys())
         suffix = "_DTO"
-        query = f"SELECT {attrs} FROM {cls.__name__.removesuffix(suffix)} WHERE "
-        if keysStr:
-            query += f"{keysStr}"
-        else:
-            query += f"{cls.key} = ?"
+        query = f"SELECT {attrs} FROM {cls.__name__.removesuffix(suffix)}"
+        if hasCondition:
+            query += " WHERE "
+            if keysStr:
+                query += f"{keysStr}"
+            else:
+                query += f"{cls.key} = ?"
         return query
     
     @classmethod
