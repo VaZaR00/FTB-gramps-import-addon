@@ -11,13 +11,15 @@ import time
 from typing import Optional
 from constants import *
 from ftb_dto import *
-import sqlite3
 import re
 import os
 import shutil
 from datetime import datetime
-from PIL import Image
 from collections.abc import Iterable
+from ftb_shared import *
+from FTBDatabaseHandler import *
+
+from PIL import Image
 import gi
 gi.require_version("Gtk", "3.0")
 from gi.repository import Gtk, GLib
@@ -27,17 +29,17 @@ from gi.repository import Gtk, GLib
 # gramps modules
 #
 #------------------------------------------------------------------------
+
 from gramps.gen.db import DbTxn
-from gramps.gen.db.base import DbWriteBase
 from gramps.gui.managedwindow import ManagedWindow
 from gramps.gen.lib import *
 from gramps.gen.utils.id import create_id
 from gramps.gui.plug.tool import BatchTool, ToolOptions
 from gramps.gen.config import config
-from gramps.gen.lib.refbase import RefBase
 
 DEV_TEST_DB_PATH = ''
-# DEV_TEST_DB_PATH = 'C:/Users/Sasha/Documents/MyHeritage/1st_1'
+DEV_TEST_DB_PATH = 'C:/Users/Sasha/Documents/MyHeritage/1st_1'
+# DEV_TEST_DB_PATH = 'C:/Users/Sasha/Documents/MyHeritage/Sample'
 
 CHANGES_COMMIT_MAIN_CLASSES = (Person, Family, Repository, Media, Source, Place)
 
@@ -49,164 +51,12 @@ Problems:
 . Even if object fully exists, it still pushes it to changes, cuz of names and smth other idk
 """
 
+
 #region Helpers
-def remove_suffix(s: str, suffix: str) -> str:
-    if s.endswith(suffix):
-        return s[: -len(suffix)]
-    return s
-
-def isEmptyOrWhitespace(s) -> bool:
-    return not s or s.strip() == ""
-
-def getValFromMap(data_map, search_key, indx):
-    for tupl in data_map:
-        if tupl[0] == search_key:
-            return tupl[indx]
-    return None
-
 def formatMHid(id, pfx) -> str:
-        return f"MH:{pfx}{id:0{DEFAULT_NUM_OF_ZEROS_ID_MH}}"
+    return f"MH:{pfx}{id:0{DEFAULT_NUM_OF_ZEROS_ID_MH}}"
+#endregoin 
 
-def forLog(data):
-    try:
-        data = toTuple(data)
-        return data[0].hintKey()
-    except:
-        return "null"
-
-def clsName(obj) -> str:
-    return type(obj).__name__.lower()
-
-def clearNones(arr):
-    return [el for el in arr if el is not None]
-
-def createCleanList(arr, func, *funcargs):
-    """Create list from array without duplicates and Nones"""
-    res = []
-    for obj in arr:
-        new = func(obj, *funcargs)
-        if new and not (new in res):
-            res.append(new)
-    
-    return res
-
-def toArr(s):
-    if not isinstance(s, (list, tuple)):
-        return [s]
-    return s
-
-def getFromListByKey(arr, key, default=-1, returnIndex=0, findIndex=0, returnAll=False):
-    for el in arr:
-        if el[findIndex] == key:
-            if returnAll:
-                return el
-            return el[returnIndex]
-
-    return default
-
-def getReferencedObjectsCommited(obj, func=lambda a: a):
-    genTypes = ("note", "citation", "attribute", "media", "address", "url", "event_ref", "surname", "reporef")
-    methodNames = ["get_alternate_names", "get_reference_handle"]
-    resList = []
-
-    for typ in genTypes:
-        methodNames.append("get_" + typ + "_list")
-
-    for methodName in methodNames:
-        try:
-            method = BaseDTO.method(obj, methodName)
-            
-            if not method: continue
-
-            refs = toArr(method())
-            
-            for ref in refs:
-                resList.append(func(ref))
-        except Exception as e:
-            pass
-
-    return resList
-
-def classSortVal(clsname):
-    values = {
-        "person": 0,
-        "family": 1,
-        "event": 2,
-        "media": 3
-    }
-    return values.get(clsname, ord(clsname[0]))
-
-def sortObjectsHandles(objs):
-    order = ["person", "family", "event", "media"]
-    priority = {name: i for i, name in enumerate(order)}
-
-    return sorted(objs, key=lambda obj: priority.get(obj.__class__.__name__, ord(obj.__class__.__name__[0])))
-
-def toTuple(v):
-    if isinstance(v, tuple):
-        return v
-    else: 
-        return (v, )
-
-def tolwr(s):
-    if isinstance(s, str):
-        return s.lower()
-    else: return s
-
-def foo(*args, **kwargs): pass
-
-def getGetter(c):
-    custom = {}
-    return custom.get(c, "g" + c[1:])
-
-def setObjectAttributes(obj, **kwargs):
-    changed = False
-    for key, val in kwargs.items():
-        if key and val:
-            oldVal = getattr(obj, getGetter(key), foo)()
-            if oldVal != val:
-                changed = True
-                getattr(obj, key, foo)(val)
-
-    return changed
-
-def tryGetHandle(obj):
-    try: return obj.get_handle()
-    except: return None
-
-def tryGetGrampsID(obj):
-    try: return obj.get_gramps_id()
-    except: return None
-
-def format_timestamp(ts):
-    if ts > 10**10:  
-        ts /= 1000  
-    return datetime.fromtimestamp(ts).strftime('%Y-%m-%d %H:%M:%S')
-
-class ToConnectReferenceObjects(BaseDTO):
-    # obj: object = None
-    notes: list = []
-    attributes: list = []
-    medias: list = []
-    events: list = []
-    citations: list = []
-    urls: list = []
-    addresses: list = []
-    names: list = []
-    surnames: list = []
-    repositories: list = []
-    source: object = None
-    primaryName: object = None
-    place: object = None
-
-class ObjectSettings(BaseDTO):
-    makeReplaceOption: bool = True
-    doReplace: bool = True
-    doFilter: bool = False
-
-class FilterOptions(BaseDTO):
-    upd_stamp: int
-#endregion
 
 #------------------------------------------------------------------------
 #
@@ -401,6 +251,13 @@ class FileSelectorPage(Page):
             checkbox.set_active(option.doReplace)
             main_box.pack_start(checkbox, False, False, 5)
             self.checkboxes.append(checkbox)
+
+        # cache checkbox
+        self.doUseCache = Gtk.CheckButton(label=MENU_LBL_CHK_USECACHE)
+        self.doUseCache.set_tooltip_text(MENU_LBL_TIP_USECACHE)
+        self.doUseCache.connect("toggled", partial(self.onChkToggle, cfg.setUseCache))
+        self.doUseCache.set_active(cfg.useCache)
+        main_box.pack_start(self.doUseCache, False, False, 5)
 
         scrolled_window = Gtk.ScrolledWindow()
         scrolled_window.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
@@ -778,36 +635,14 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         self._doCopyMedia = False
         self._doHandling = True
         self._doFilter = False
-        self.cache = {
-            individual_main_data_DTO: dict(),
-            individual_data_set_DTO: dict(),
-            individual_lang_data_DTO: dict(),
-            individual_fact_main_data_DTO: dict(),
-            individual_fact_lang_data_DTO: dict(),
-            family_individual_connection_DTO: dict(),
-            family_main_data_DTO: dict(),
-            family_fact_lang_data_DTO: dict(),
-            family_fact_main_data_DTO: dict(),
-            media_item_to_item_connection_DTO: dict(),
-            media_item_main_data_DTO: dict(),
-            media_item_lang_data_DTO: dict(),
-            citation_main_data_DTO: dict(),
-            citation_lang_data_DTO: dict(),
-            source_main_data_DTO: dict(),
-            source_lang_data_DTO: dict(),
-            repository_main_data_DTO: dict(),
-            repository_lang_data_DTO: dict(),
-            places_lang_data_DTO: dict(),
-            note_to_item_connection_DTO: dict(),
-            note_main_data_DTO: dict(),
-            note_lang_data_DTO: dict(),
-        }
+        self.useCache = True
 
         if DEV_TEST_DB_PATH:
             self.tryConnectSQLdb(self.path)
 
         self.getConfigs()
         self.createGUI()
+        self.initCache()
 
     #region Properties
     def setHandling(self, val):
@@ -815,6 +650,9 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
 
     def setCopyMedia(self, val):
         self._doCopyMedia = val
+    
+    def setUseCache(self, val):
+        self.useCache = val
     #endregion
 
     #------------------------------------------------------------------------
@@ -920,6 +758,10 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         return pageN + 1
 
     def log(self, s):
+        # GLib.idle_add(self._log, s)
+        self._log(s)
+
+    def _log(self, s):
         buffer = self.progress_page.log_text_view.get_buffer()
         end_iter = buffer.get_end_iter()
         buffer.insert(end_iter, f"{s}\n")
@@ -945,6 +787,38 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
     #------------------------------------------------------------------------
     #
     #region BACKEND
+
+    #region TEST
+    def testProccesingTime(self, testCycles = 0):
+        if testCycles < 1: return
+
+        tStart = time.time()
+
+        timeArray = []
+        self.log(f"TESTS \nTime start: {tStart}")
+
+        for i in range(testCycles):
+            if not self.useCache: self.initCache()
+            tCycleStart = time.time()
+            self.log(f"-------------\n\nTEST {i}\n\n-------------")
+            self.run()
+            # self.log(f"CACHE SIZE: {get_obj_size(self.cache)}")
+            self.log(f"CACHE:\n{self.cache}")
+            timeArray.append(time.time() - tCycleStart)
+
+        self.log(f"""
+                 \n-------------
+                 \nFINISHED\n
+                 \n-------------
+                 \nStart: {tStart}
+                 \nEnd: {time.time()}
+                 \nALL Time taken: {time.time() - tStart}
+                 \nAverage time: {sum(timeArray) / len(timeArray)}
+                 \nMax time: {max(timeArray)}
+                 \nMin time: {min(timeArray)}
+        """)
+    
+    #endregion
 
     #region main
     def getConfigs(self):
@@ -982,7 +856,8 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
             self.log(HINT_PROCCES_CONNTODB.format(self.path))
             with DbTxn(f"FTB:GRAMPS:SYNC", self.db) as trans:
                 self.trans = trans
-                self.run()
+                # self.run()
+                self.testProccesingTime(1)
         except Exception as e:
             self.log(HINT_PROCCES_ERROR.format(e))
             self.cancelChanges()
@@ -993,18 +868,22 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
 
         allPersonsIds = self.dbHandler.fetchDbData(["individual_id"], "individual_main_data")
         self.setCache()
-        # allFamiliesIds = self.dbHandler.fetchDbData(["family_id"], "family_main_data")
+
+        tStart = time.time()
+
+        if self.useCache:
+            self.log(f"Cache size: {get_obj_size(self.cache) / pow(1024, 2)} Mb")
 
         for id in allPersonsIds:
             self.handleObject(self.findPerson, id, False, False)
-
-        # for id in allFamiliesIds:
-        #     self.handleObject(self.findFamily, id, False, False)
 
         if self.succesfuly:
             self.log(HINT_PROCCES_DONE_S)
         else:
             self.log(HINT_PROCCES_DONE_W)
+
+        self.log(HINT_PROCCES_DONE_TIME.format(f"{time.time() - tStart:.2f}"))
+
         self.processing_complete = True
         self.connectedToFTBdb = False
 
@@ -1127,9 +1006,21 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
 
     def fetchData(self, *args: tuple):
         def do(x):
-            cache = self.getFromCache(x)
-            if cache: return cache
-            return self.dbHandler.fetchDbDataDto(*x)
+            self.log(f"FETCHING ARGS: {x}")
+            if self.useCache:
+                cache = self.getFromCache(*x)
+                if cache:
+                    # self.log("GETTING DATA FROM CACHE") 
+                    self.log(f"FROM CACHE: {cache}") 
+                    return cache
+            else:
+                # self.log("FETCHING DATA")
+                res = self.dbHandler.fetchDbDataDto(*x)
+                res1 = toIter(res, list)
+                for i in res1:
+                    self.saveToCache(i)
+                self.log(f"FROM SQL: {res}")
+                return res
         
         if len(args) == 1: 
             return do(args[0])
@@ -1213,9 +1104,9 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
                 if obj:
                     objects.append(obj)
 
-        # objects.sort(key=lambda x: x.sortval)
+        objects.sort(key=lambda x: x.sortval)
 
-        objects = sortObjectsHandles(objects)
+        # objects = sortObjectsHandles(objects)
 
         return objects
     
@@ -1234,9 +1125,9 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         attHandlesList = [AttributeHandle(key, val, attrsOld.get(key, None)) for key, val in attrsNew.items()]
         func = lambda obj, self: self.createObjectHandle(obj, self.getFromCompareList(obj, None))
         secondaryObjs = createCleanList(self.getSecondaryObjects(new), func, self)
-        # secondaryObjs.sort(key=lambda x: x.sortval)
+        secondaryObjs.sort(key=lambda x: x.sortval)
 
-        secondaryObjs = sortObjectsHandles(secondaryObjs)
+        # secondaryObjs = sortObjectsHandles(secondaryObjs)
 
         res = ObjectHandle(
             clsName(new).title(),
@@ -1423,7 +1314,7 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         return resList
     
     def getFilter(self, cls, mainKey, filterType=None) -> tuple[tuple, str]:
-        mainKey = toTuple(mainKey)
+        mainKey = toIter(mainKey)
         filterType = "filterByUPD"
         try:
             sett = self.objectSettings[cls]
@@ -1439,7 +1330,7 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
     def checkFilter(self, data):
         if not self._doFilter: return True
 
-        data = toTuple(data)
+        data = toIter(data)
 
         if data.count == 2:
             data, langData = data
@@ -1457,23 +1348,72 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         return result
     
     #region CACHE
-    def getFromCache(self, args):
-        # args - (id, DTO, isList)
-        if not args: return None
-        return self.cache.get(args[1], dict()).get(args[0], None)
+    def getFromCache(self, id, dto, oneRow=True, query=None, keysStr=None, hasCondition=True):
+        # args - ((id, ), DTO, oneRow)
+        # print(f"ARGS: {args}, 1: {args[0]}")
+        if not id or not dto: return None
+        if keysStr:
+            dto = self.cacheDtoSchemeType(dto, keysStr)
+        res = self.cache.get(dto, dict()).get(ifIter(id), None)
+        if not oneRow and res:
+            return toIter(res, list)
+        return res
 
-    def saveToCache(self, data: BaseDTO):
+    def saveToCache(self, data: BaseDTO, keyClass = None, idKey = "main_id"):
         if not data: return
-        self.cache[type(data)][getattr(data, "main_id", -1)] = data
+        if not keyClass:
+            keyClass = type(data)
+        id = getattr(data, idKey, -1)
+        old = self.getFromCache(*((id, ), keyClass))
+        if old: data = toIter(old, list) + toIter(data, list)
+        self.cache[keyClass][id] = data
 
     def setCache(self):
+        if not self.useCache: return
+        self.initCache()
         for keyClass in self.cache.keys():
+            if isinstance(keyClass, str): continue
             allData = self.dbHandler.fetchDbDataDto(None, keyClass, hasCondition=False, oneRow=False)
-            # print(f"SETTING CACHE FOR {keyClass}, {allData}")
+            # self.log(f"SETTING CACHE FOR {keyClass}, {allData}")
             if allData:
                 for data in allData:
-                    if data:
-                        self.saveToCache(data)
+                    self.saveToCache(data)
+                    if keyClass == family_individual_connection_DTO:
+                        self.saveToCache(data, "family_individual_connection_DTO_individual_id", "individual_id")
+
+    def cacheDtoSchemeType(self, dto, keysStr):
+        if not keysStr: return dto
+        if not dto: return dto
+        if keysStr == "individual_id = ?":
+            return "family_individual_connection_DTO_individual_id"
+    
+    def initCache(self):
+        self.cache = {
+            individual_main_data_DTO: dict(),
+            individual_data_set_DTO: dict(),
+            individual_lang_data_DTO: dict(),
+            individual_fact_main_data_DTO: dict(),
+            individual_fact_lang_data_DTO: dict(),
+            family_individual_connection_DTO: dict(),
+            family_main_data_DTO: dict(),
+            family_fact_lang_data_DTO: dict(),
+            family_fact_main_data_DTO: dict(),
+            media_item_to_item_connection_DTO: dict(),
+            media_item_main_data_DTO: dict(),
+            media_item_lang_data_DTO: dict(),
+            citation_main_data_DTO: dict(),
+            citation_lang_data_DTO: dict(),
+            source_main_data_DTO: dict(),
+            source_lang_data_DTO: dict(),
+            repository_main_data_DTO: dict(),
+            repository_lang_data_DTO: dict(),
+            places_lang_data_DTO: dict(),
+            note_to_item_connection_DTO: dict(),
+            note_main_data_DTO: dict(),
+            note_lang_data_DTO: dict(),
+            "family_individual_connection_DTO_individual_id": dict(),
+        }
+        
     #endregion
 
     #endregion
@@ -1483,7 +1423,7 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         if not id: return None, self.modifyPerson, Person, None
         mainData, dataSets = self.fetchData((id, individual_main_data_DTO), (id, individual_data_set_DTO, False))
         person = self.findByIdsAttributes(mainData.guid.lower(), "person")
-        langData = [self.fetchData(((dataSet.individual_data_set_id, ), individual_lang_data_DTO)) for dataSet in dataSets]
+        langData = [self.fetchData(((dataSet.individual_data_set_id, ), individual_lang_data_DTO)) for dataSet in dataSets if dataSet]
         langData = [el for el in langData if el is not None]
         return person, self.modifyPerson, Person, (mainData, langData)
 
@@ -2744,78 +2684,6 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
     #endregion
     #
     #------------------------------------------------------------------------
-
-class FTBDatabaseHandler:
-    def __init__(self, dbPath):
-        self.dbPath = dbPath
-        self.cursor, self.dbConnection = self.connect_to_database()
-
-    def connect_to_database(self):
-        self.dbPath = self.find_ftb_file(self.dbPath)
-        if not self.dbPath: raise FileNotFoundError
-        conn = sqlite3.connect(self.dbPath, check_same_thread=False)
-        conn.text_factory = lambda b: b.decode(errors = 'ignore')
-        cursor = conn.cursor()
-        return cursor, conn
-
-    def find_ftb_file(self, root_folder: str):
-        # if not (FTB_DIR_NAME in root_folder.lower()): return None
-        for dirpath, dirnames, filenames in os.walk(root_folder):
-            if os.path.basename(dirpath).lower() == FTB_DB_DIR_NAME:
-                for filename in filenames:
-                    if filename.endswith(FTB_DB_FORMAT):
-                        return os.path.join(dirpath, filename)
-        return None
-
-    def fetchDbDataDto(self, key, dtoClass, oneRow=True, query=None, keysStr=None, hasCondition=True):
-        if query is None:
-            query = dtoClass.query(keysStr, hasCondition)
-            
-        try:
-            if key:
-                key = toTuple(key)
-                self.cursor.execute(query, key)
-            else:
-                self.cursor.execute(query)
-
-            if oneRow:
-                rows = self.cursor.fetchone()
-            else:
-                rows = self.cursor.fetchall()
-            
-            if rows:
-                if oneRow:
-                    objects = dtoClass(*rows)
-                else:
-                    objects = [dtoClass(*row) for row in rows]
-                return objects
-            else:
-                return None
-
-        except sqlite3.Error as e:
-            print(f"Error while executing query: {e}, {traceback.format_exc()}")
-            return None
-
-    def fetchDbData(self, params: list = list('*'), table_name: str = 'N', key: str = None) -> list:
-        columns = ", ".join(params)
-        if key:
-            key = str(key)
-            query = f"SELECT {columns} FROM {table_name} WHERE id = %s"
-            self.cursor.execute(query, (key,))
-        else:
-            query = f"SELECT {columns} FROM {table_name}"
-            self.cursor.execute(query)
-        
-        results = self.cursor.fetchall()
-        
-        return results
-
-    def fetchQuery(self, query, all=False):
-        self.cursor.execute(query)
-        if all:
-            return self.cursor.fetchall()
-        else:
-            return self.cursor.fetchone()
 
 class FTB_Gramps_sync_options(ToolOptions):
     """Options for FTB_Gramps_sync."""

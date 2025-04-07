@@ -1,23 +1,17 @@
-from gramps.gen.lib import *
 from ftb_gramps_sync import *
+from gramps.gen.lib import *
+# from test_classes import *
 from datetime import datetime
-from constants import *
-# class Date:
-#     pass
-# class StyledText:
-#     pass
-# class PlaceName:
-#     pass
 
-#region Helpers
 def format_timestamp(ts):
     if ts > 10**10:  
         ts /= 1000  
     return datetime.fromtimestamp(ts).strftime('%Y-%m-%d %H:%M:%S')
-#endregion
+
 
 class BaseDTO:
     main_id: int
+    main_id_key: str = "-"
 
     def __repr__(self, obj=None): 
         """Unified class representation"""
@@ -43,12 +37,16 @@ class BaseDTO:
 
             setattr(self, att, setval)
 
-            if isinstance(setval, int) and "_id" in att and not setval:
+            if isinstance(setval, int) and "_id" in att and setval and not getattr(self, "main_id", None):
+                self.main_id = setval
+            if self.main_id_key in att:
                 self.main_id = setval
 
         for key, val in kwargs.items():
             setattr(self, key, val)
-            if isinstance(setval, int) and ("_id" in att) and not setval:
+            if isinstance(setval, int) and ("_id" in att) and setval and not getattr(self, "main_id", None):
+                self.main_id = setval
+            if self.main_id_key in att:
                 self.main_id = setval
 
     def hintKey(self):
@@ -89,6 +87,7 @@ class individual_main_data_DTO(BaseDTO):
 
 class individual_data_set_DTO(BaseDTO):
     key = "individual_id"
+    main_id_key = "individual_id"
     individual_id: int
     individual_data_set_id: int
 
@@ -124,6 +123,7 @@ class individual_fact_main_data_DTO(BaseDTO):
 
 class individual_fact_lang_data_DTO(BaseDTO):
     key = "individual_fact_id"
+    main_id_key = "individual_fact_id"
     individual_fact_id: int
     header: str
     cause_of_death: str

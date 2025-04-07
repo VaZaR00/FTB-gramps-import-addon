@@ -31,6 +31,8 @@ MENU_LBL_CHK_COPYMEDIA = _("Copy media")
 MENU_LBL_TIP_COPYMEDIA = _("Copy media to user media folder path")
 MENU_LBL_CHK_DOHANDLE = _("Handle Changes")
 MENU_LBL_TIP_DOHANDLE = _("Select if you need to Handle Changes after progress or just transfer all as it is")
+MENU_LBL_CHK_USECACHE = _("Use Cache")
+MENU_LBL_TIP_USECACHE = _("It will fetch and save all data from DB in cache at once for faster access. Huge optimization, but hypothetically in very large databases might be problems with RAM usage")
 
 MENU_LBL_FILTER_CHKBOX = _("Enable filter")
 MENU_LBL_FILTER_LBL = _("Filter Options")
@@ -62,6 +64,7 @@ MENU_LBL_HIDDEN_CONT_ERROR_FILE_SEL = _("Folder is not selected or there is no D
 HINT_PROCCESING = _("Please wait...\n\nProgram might freeze for some time\n\nProcessing started...")
 HINT_PROCCES_DONE_S = _("\nFTB to Gramps transfer done successfuly!")
 HINT_PROCCES_DONE_W = _("\nFTB to Gramps transfer done with some problems. Please read logs for more information.")
+HINT_PROCCES_DONE_TIME = _("\nTime elapsed: {} seconds")
 HINT_PROCCES_CONNTODB = _("Succesfully connected to db: '{}'")
 HINT_PROCCES_ERROR = _("\nSomething went wrong: {} \n")
 
