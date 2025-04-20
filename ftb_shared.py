@@ -1,7 +1,7 @@
 import gc
+import re
 import sys
 from datetime import datetime
-from ftb_dto import BaseDTO
 
 def remove_suffix(s: str, suffix: str) -> str:
     if s.endswith(suffix):
@@ -54,29 +54,6 @@ def getFromListByKey(arr, key, default=-1, returnIndex=0, findIndex=0, returnAll
 
     return default
 
-def getReferencedObjectsCommited(obj, func=lambda a: a):
-    genTypes = ("note", "citation", "attribute", "media", "address", "url", "event_ref", "surname", "reporef")
-    methodNames = ["get_alternate_names", "get_reference_handle"]
-    resList = []
-
-    for typ in genTypes:
-        methodNames.append("get_" + typ + "_list")
-
-    for methodName in methodNames:
-        try:
-            method = BaseDTO.method(obj, methodName)
-            
-            if not method: continue
-
-            refs = toArr(method())
-            
-            for ref in refs:
-                resList.append(func(ref))
-        except Exception as e:
-            pass
-
-    return resList
-
 def classSortVal(clsname):
     values = {
         "person": 0,
@@ -98,9 +75,9 @@ def toIter(v, cls=tuple):
     else: 
         return cls((v, ))
 
-def ifIter(v, cls=tuple):
-    if isinstance(v, cls):
-        return v[0]
+def ifIter(v):
+    if isinstance(v, (tuple, list, dict)):
+        if v: return v[0]
     else: 
         return v
 
@@ -163,26 +140,6 @@ def get_obj_size(obj):
 
     return sz
 
-class ToConnectReferenceObjects(BaseDTO):
-    # obj: object = None
-    notes: list = []
-    attributes: list = []
-    medias: list = []
-    events: list = []
-    citations: list = []
-    urls: list = []
-    addresses: list = []
-    names: list = []
-    surnames: list = []
-    repositories: list = []
-    source: object = None
-    primaryName: object = None
-    place: object = None
-
-class ObjectSettings(BaseDTO):
-    makeReplaceOption: bool = True
-    doReplace: bool = True
-    doFilter: bool = False
-
-class FilterOptions(BaseDTO):
-    upd_stamp: int
+def splitSQLargs(s):
+    pattern = r'\s+|!=|=|AND|OR|&'
+    return [token for token in re.split(pattern, s) if token]

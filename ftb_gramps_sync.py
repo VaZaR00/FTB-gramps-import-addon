@@ -38,8 +38,7 @@ from gramps.gui.plug.tool import BatchTool, ToolOptions
 from gramps.gen.config import config
 
 DEV_TEST_DB_PATH = ''
-DEV_TEST_DB_PATH = 'C:/Users/Sasha/Documents/MyHeritage/1st_1'
-# DEV_TEST_DB_PATH = 'C:/Users/Sasha/Documents/MyHeritage/Sample'
+# DEV_TEST_DB_PATH = 'C:/Users/Sasha/Documents/MyHeritage/1st_1'
 
 CHANGES_COMMIT_MAIN_CLASSES = (Person, Family, Repository, Media, Source, Place)
 
@@ -55,6 +54,55 @@ Problems:
 #region Helpers
 def formatMHid(id, pfx) -> str:
     return f"MH:{pfx}{id:0{DEFAULT_NUM_OF_ZEROS_ID_MH}}"
+
+def getReferencedObjectsCommited(obj, func=lambda a: a):
+    genTypes = ("note", "citation", "attribute", "media", "address", "url", "event_ref", "surname", "reporef")
+    methodNames = ["get_alternate_names", "get_reference_handle"]
+    resList = []
+
+    for typ in genTypes:
+        methodNames.append("get_" + typ + "_list")
+
+    for methodName in methodNames:
+        try:
+            method = BaseDTO.method(obj, methodName)
+            
+            if not method: continue
+
+            refs = toArr(method())
+            
+            for ref in refs:
+                resList.append(func(ref))
+        except Exception as e:
+            pass
+
+    return resList
+
+class ToConnectReferenceObjects(BaseDTO):
+    # obj: object = None
+    notes: list = []
+    attributes: list = []
+    medias: list = []
+    events: list = []
+    citations: list = []
+    urls: list = []
+    addresses: list = []
+    names: list = []
+    surnames: list = []
+    repositories: list = []
+    source: object = None
+    primaryName: object = None
+    place: object = None
+
+class ObjectSettings(BaseDTO):
+    makeReplaceOption: bool = True
+    doReplace: bool = True
+    doFilter: bool = False
+
+class FilterOptions(BaseDTO):
+    upd_stamp: int
+
+
 #endregoin 
 
 
@@ -258,6 +306,13 @@ class FileSelectorPage(Page):
         self.doUseCache.connect("toggled", partial(self.onChkToggle, cfg.setUseCache))
         self.doUseCache.set_active(cfg.useCache)
         main_box.pack_start(self.doUseCache, False, False, 5)
+
+        # do extended Logging checkbox
+        self.doLog = Gtk.CheckButton(label=MENU_LBL_CHK_DOLOG)
+        self.doLog.set_tooltip_text(MENU_LBL_TIP_DOLOG)
+        self.doLog.connect("toggled", partial(self.onChkToggle, cfg.setDoLog))
+        self.doLog.set_active(cfg.dolog)
+        main_box.pack_start(self.doLog, False, False, 5)
 
         scrolled_window = Gtk.ScrolledWindow()
         scrolled_window.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
@@ -636,6 +691,7 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         self._doHandling = True
         self._doFilter = False
         self.useCache = True
+        self.dolog = False
 
         if DEV_TEST_DB_PATH:
             self.tryConnectSQLdb(self.path)
@@ -650,9 +706,16 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
 
     def setCopyMedia(self, val):
         self._doCopyMedia = val
+
+    def setDoLog(self, val):
+        self.dolog = val
     
     def setUseCache(self, val):
         self.useCache = val
+        if val:
+            self.fetchFrom = self.fetchCache
+        else:
+            self.fetchFrom = self.fetchSQL
     #endregion
 
     #------------------------------------------------------------------------
@@ -757,15 +820,19 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
 
         return pageN + 1
 
-    def log(self, s):
-        # GLib.idle_add(self._log, s)
-        self._log(s)
-
     def _log(self, s):
         buffer = self.progress_page.log_text_view.get_buffer()
         end_iter = buffer.get_end_iter()
         buffer.insert(end_iter, f"{s}\n")
         print(s)
+
+    def log(self, s):
+        # GLib.idle_add(self._log, s)
+        self._log(s)
+
+    def testlog(self, s):
+        if self.dolog:
+            self.log(s)
     
     def addToLog(self, s):
         self.forLog.append(s)
@@ -856,8 +923,8 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
             self.log(HINT_PROCCES_CONNTODB.format(self.path))
             with DbTxn(f"FTB:GRAMPS:SYNC", self.db) as trans:
                 self.trans = trans
-                # self.run()
-                self.testProccesingTime(1)
+                self.run()
+                # self.testProccesingTime(1)
         except Exception as e:
             self.log(HINT_PROCCES_ERROR.format(e))
             self.cancelChanges()
@@ -872,7 +939,7 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         tStart = time.time()
 
         if self.useCache:
-            self.log(f"Cache size: {get_obj_size(self.cache) / pow(1024, 2)} Mb")
+            self.log(f"\nCache size: {get_obj_size(self.cache) / pow(1024, 2)} Mb\n")
 
         for id in allPersonsIds:
             self.handleObject(self.findPerson, id, False, False)
@@ -883,6 +950,9 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
             self.log(HINT_PROCCES_DONE_W)
 
         self.log(HINT_PROCCES_DONE_TIME.format(f"{time.time() - tStart:.2f}"))
+
+        self.testlog(f"\n\n-------------------------\nEXTENDED LOG\n-------------------------\n\n")
+        self.testlog(f"CACHE:\n{self.cache}")
 
         self.processing_complete = True
         self.connectedToFTBdb = False
@@ -1004,28 +1074,23 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
 
         return events, attributes, urls, addresses, notes
 
+    def fetchSQL(self, args):
+        res = self.dbHandler.fetchDbDataDto(*args)
+        res1 = toIter(res, list)
+        for i in res1:
+            self.saveToCache(i)
+        return res
+    
+    def fetchCache(self, args):
+        cache = self.getFromCache(*args)
+        if cache:
+            return cache
+
     def fetchData(self, *args: tuple):
-        def do(x):
-            self.log(f"FETCHING ARGS: {x}")
-            if self.useCache:
-                cache = self.getFromCache(*x)
-                if cache:
-                    # self.log("GETTING DATA FROM CACHE") 
-                    self.log(f"FROM CACHE: {cache}") 
-                    return cache
-            else:
-                # self.log("FETCHING DATA")
-                res = self.dbHandler.fetchDbDataDto(*x)
-                res1 = toIter(res, list)
-                for i in res1:
-                    self.saveToCache(i)
-                self.log(f"FROM SQL: {res}")
-                return res
-        
         if len(args) == 1: 
-            return do(args[0])
+            return self.fetchFrom(args[0])
         
-        return tuple(do(arg) for arg in args)
+        return tuple(self.fetchFrom(arg) for arg in args)
 
     def grampsDbMethod(self, obj, name, command="commit_%s"):
         method = self.db.method(command, name)
@@ -1044,6 +1109,7 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
 
     def setFamilyMembers(self, family: Family, familyId):
         membersConnections: tuple[family_individual_connection_DTO] = self.fetchData((familyId, family_individual_connection_DTO, False))
+        
         for member in membersConnections:
             id = member.individual_id
             role = member.individual_role_type
@@ -1353,38 +1419,54 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
         # print(f"ARGS: {args}, 1: {args[0]}")
         if not id or not dto: return None
         if keysStr:
-            dto = self.cacheDtoSchemeType(dto, keysStr)
-        res = self.cache.get(dto, dict()).get(ifIter(id), None)
+            # dto = self.cacheDtoSchemeType(dto, keysStr)
+            res = self.cacheNoRel.get(dto, dict())
+            keys = splitSQLargs(keysStr)
+            newRes = []
+            # temporary using all conditions
+            for o in res:
+                if all((getattr(o, k, None) == v) for k, v in zip(keys, toIter(id))): newRes.append(o)
+            res = newRes
+        else:
+            res = self.cache.get(dto, dict()).get(ifIter(id), None)
+
         if not oneRow and res:
             return toIter(res, list)
-        return res
+        return ifIter(res)
 
     def saveToCache(self, data: BaseDTO, keyClass = None, idKey = "main_id"):
         if not data: return
         if not keyClass:
             keyClass = type(data)
         id = getattr(data, idKey, -1)
-        old = self.getFromCache(*((id, ), keyClass))
-        if old: data = toIter(old, list) + toIter(data, list)
-        self.cache[keyClass][id] = data
+        old = self.getFromCache((id, ), keyClass, False)
+        if old: 
+            newdata = toIter(old, list)
+            for d in toIter(data):
+                newdata.append(d)
+        else:
+            newdata = data
+        self.cache[keyClass][id] = newdata
+        temp = toIter(newdata, list)
+        for t in temp:
+            if t: self.cacheNoRel[keyClass].append(t)
 
     def setCache(self):
         if not self.useCache: return
         self.initCache()
         for keyClass in self.cache.keys():
-            if isinstance(keyClass, str): continue
+            # if isinstance(keyClass, str): continue
             allData = self.dbHandler.fetchDbDataDto(None, keyClass, hasCondition=False, oneRow=False)
-            # self.log(f"SETTING CACHE FOR {keyClass}, {allData}")
             if allData:
                 for data in allData:
                     self.saveToCache(data)
-                    if keyClass == family_individual_connection_DTO:
-                        self.saveToCache(data, "family_individual_connection_DTO_individual_id", "individual_id")
+                    # if keyClass == family_individual_connection_DTO:
+                    #     self.saveToCache(data, "family_individual_connection_DTO_individual_id", "individual_id")
 
     def cacheDtoSchemeType(self, dto, keysStr):
         if not keysStr: return dto
         if not dto: return dto
-        if keysStr == "individual_id = ?":
+        if keysStr == "individual_id = ?" and dto == family_individual_connection_DTO:
             return "family_individual_connection_DTO_individual_id"
     
     def initCache(self):
@@ -1411,7 +1493,31 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
             note_to_item_connection_DTO: dict(),
             note_main_data_DTO: dict(),
             note_lang_data_DTO: dict(),
-            "family_individual_connection_DTO_individual_id": dict(),
+            # "family_individual_connection_DTO_individual_id": dict(),
+        }
+        self.cacheNoRel = {
+            individual_main_data_DTO: list(),
+            individual_data_set_DTO: list(),
+            individual_lang_data_DTO: list(),
+            individual_fact_main_data_DTO: list(),
+            individual_fact_lang_data_DTO: list(),
+            family_individual_connection_DTO: list(),
+            family_main_data_DTO: list(),
+            family_fact_lang_data_DTO: list(),
+            family_fact_main_data_DTO: list(),
+            media_item_to_item_connection_DTO: list(),
+            media_item_main_data_DTO: list(),
+            media_item_lang_data_DTO: list(),
+            citation_main_data_DTO: list(),
+            citation_lang_data_DTO: list(),
+            source_main_data_DTO: list(),
+            source_lang_data_DTO: list(),
+            repository_main_data_DTO: list(),
+            repository_lang_data_DTO: list(),
+            places_lang_data_DTO: list(),
+            note_to_item_connection_DTO: list(),
+            note_main_data_DTO: list(),
+            note_lang_data_DTO: list(),
         }
         
     #endregion
@@ -2674,7 +2780,7 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
 
     def handleFamily(self, personDto):
         conn = self.fetchData((personDto.individual_id, family_individual_connection_DTO, True, None, "individual_id = ?"))
-        fam_id = conn.family_id
+        fam_id = getattr(conn, "family_id", None)
         if fam_id:
             if not getattr(self, f"FAM_HANDLED_{fam_id}", False):
                 self.handleObject(self.findFamily, fam_id, False, False)

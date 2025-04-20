@@ -33,6 +33,8 @@ MENU_LBL_CHK_DOHANDLE = _("Handle Changes")
 MENU_LBL_TIP_DOHANDLE = _("Select if you need to Handle Changes after progress or just transfer all as it is")
 MENU_LBL_CHK_USECACHE = _("Use Cache")
 MENU_LBL_TIP_USECACHE = _("It will fetch and save all data from DB in cache at once for faster access. Huge optimization, but hypothetically in very large databases might be problems with RAM usage")
+MENU_LBL_CHK_DOLOG = _("Extended logging")
+MENU_LBL_TIP_DOLOG = _("More info will be logged (for debugging)")
 
 MENU_LBL_FILTER_CHKBOX = _("Enable filter")
 MENU_LBL_FILTER_LBL = _("Filter Options")
