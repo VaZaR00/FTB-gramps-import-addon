@@ -22,7 +22,7 @@ You will have to choose folder path of your FTB family tree project and you can 
 
 ![menu_file](https://github.com/user-attachments/assets/465118f1-1c5b-4d34-81fb-2def7b54d9c9)
 
-*NEW* also you can apply some filters:
+Also you can apply some filters:
 
 ![filter_upd](https://github.com/user-attachments/assets/612108d6-dc8b-4353-aa48-f2f3e4897ae2)
 
@@ -40,6 +40,8 @@ _select your project_ -> click "Go to Folder" button
 Than you can manage what data you want to import by checking "Commit" flag
 
 ![handle](https://github.com/user-attachments/assets/67d00082-fdb5-469f-b329-97f484b720e8)
+
+*NEW* You can enable using Cache which will make the transfer faster, but it may not work with very large Databases.
 
 # How it works
 It reads local SQLite database file of FTB project.
