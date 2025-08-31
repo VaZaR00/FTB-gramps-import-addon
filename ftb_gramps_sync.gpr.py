@@ -29,7 +29,7 @@ register(
     name="FTB to Gramps data transfer",
     description=_("Transfers data from MyHeritage Family Tree Builder to Gramps"),
     version = '1.4.0',
-    gramps_target_version="5.2",
+    gramps_target_version="6.0",
     status=BETA,
     fname="ftb_gramps_sync.py",
     authors=["Vazar"],

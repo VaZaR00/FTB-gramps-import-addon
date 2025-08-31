@@ -787,6 +787,8 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
 
     def prepareHandleChangesAsync(self):
         self.objectsList = self.createCompareObjectsList()
+        if self.objectsList == None:
+            self.objectsList = []
         self.handle_change_page.display_changes(self.objectsList)
 
     def add_page(self, page, page_type, title=""):
@@ -2086,7 +2088,7 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
     def modifyDate(self, dateObj: Date, data: DateDTO):
         if not data: return None
         
-        dateObj.set(data.quality, data.modified, 0, data.value, data.dateText)
+        dateObj.set(data.quality, data.modified, None, data.value, data.dateText)
 
         return dateObj
 
