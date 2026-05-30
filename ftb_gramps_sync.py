@@ -822,11 +822,27 @@ class FTB_Gramps_sync(BatchTool, ManagedWindow):
 
         return pageN + 1
 
+    # Max lines kept in the GUI log TextView. The processing loop runs in a
+    # single blocking main-loop callback, so the buffer never gets a chance to
+    # be re-validated/redrawn; on large imports the ever-growing text btree
+    # eventually triggers a fatal g_log (SIGTRAP) on insert. Cap it.
+    LOG_MAX_LINES = 2000
+
     def _log(self, s):
-        buffer = self.progress_page.log_text_view.get_buffer()
-        end_iter = buffer.get_end_iter()
-        buffer.insert(end_iter, f"{s}\n")
-        print(s)
+        # Strip C0 control chars (NUL etc. from FTB data) that crash GtkTextView.
+        safe = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', str(s))
+        try:
+            buffer = self.progress_page.log_text_view.get_buffer()
+            line_count = buffer.get_line_count()
+            if line_count > self.LOG_MAX_LINES:
+                start = buffer.get_start_iter()
+                cut = buffer.get_iter_at_line(line_count - self.LOG_MAX_LINES)
+                buffer.delete(start, cut)
+            end_iter = buffer.get_end_iter()
+            buffer.insert(end_iter, f"{safe}\n")
+        except Exception as e:
+            print(f"[FTBImport log suppressed]: {e}")
+        print(safe)
 
     def log(self, s):
         # GLib.idle_add(self._log, s)
