@@ -1,0 +1,35 @@
+name: Deploy Release
+
+on:
+  push:
+    # Triggers the workflow on push to the main branch.
+    # Change 'main' to 'master' if your default branch is named master.
+    branches:
+      - main 
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # Grants permission to create releases and upload assets
+
+    steps:
+    # 1. Check out the repository code
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    # 2. Package the project using git archive with the specified folder prefix
+    - name: Create ZIP archive via Git
+      run: |
+        git archive --format=zip --prefix=gramps_ftb_import/ HEAD -o gramps_ftb_import_release.zip
+
+    # 3. Create a GitHub Release and attach the archive
+    - name: Create Release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: release-${{ github.sha }}
+        name: Release ${{ github.sha }}
+        body: |
+          Automated release build.
+          Commit SHA: ${{ github.sha }}
+        files: gramps_ftb_import_release.zip
