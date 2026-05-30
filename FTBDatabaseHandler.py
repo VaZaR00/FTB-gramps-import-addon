@@ -1,7 +1,16 @@
 import os
+import re
 import sqlite3
 import traceback
 from ftb_shared import *
+
+# FTB stores binary control bytes inside some text columns (e.g. a trailing
+# blob on date fields). Those bytes (NUL and other C0 controls) crash the
+# GTK TextView log insert with a fatal g_log (SIGTRAP, not catchable in Python).
+# Strip C0 control chars on decode, keeping tab/newline/carriage-return.
+_FTB_CTRL_RE = re.compile(r'[\x00-\x08\x0b\x0c\x0e-\x1f]')
+def _ftb_decode(b):
+    return _FTB_CTRL_RE.sub('', b.decode(errors='ignore'))
 
 FTB_DIR_NAME = "myheritage"
 FTB_DB_DIR_NAME = "database"
@@ -16,7 +25,7 @@ class FTBDatabaseHandler:
         self.dbPath = self.find_ftb_file(self.dbPath)
         if not self.dbPath: raise FileNotFoundError
         conn = sqlite3.connect(self.dbPath, check_same_thread=False)
-        conn.text_factory = lambda b: b.decode(errors = 'ignore')
+        conn.text_factory = _ftb_decode
         cursor = conn.cursor()
         return cursor, conn
 
